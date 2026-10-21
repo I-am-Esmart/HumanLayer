@@ -1,35 +1,20 @@
 {
   "version": 2,
-  "buildCommand": "vite build",
+  "buildCommand": "bun run build",
   "outputDirectory": "dist",
   "framework": null,
-  "functions": {
-    "api/index.ts": {
-      "runtime": "@vercel/node@5"
-    }
-  },
   "rewrites": [
     {
       "source": "/health",
-      "destination": "/api/index.ts"
+      "destination": "/api"
     },
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.ts"
+      "source": "/api/:path*",
+      "destination": "/api"
     },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" }
-      ]
     }
   ]
 }
