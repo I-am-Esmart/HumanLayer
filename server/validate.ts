@@ -4,8 +4,8 @@
  * All spending limits are enforced here before any onchain action is suggested.
  */
 
-import type { AgentProfile, TaskCategory } from './types'
-import { getDailySpent } from './store'
+import type { AgentProfile, TaskCategory } from './types.ts'
+import { getDailySpent } from './store.ts'
 
 // ─── Amount helpers ───────────────────────────────────────────────────────────
 

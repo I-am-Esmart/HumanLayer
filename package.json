@@ -53,6 +53,7 @@
     "tailwindcss": "^3.4.17",
     "typescript": "~7.0.2",
     "vite": "^6.0.5",
-    "vite-plugin-node-polyfills": "^0.22.0"
+    "vite-plugin-node-polyfills": "^0.22.0",
+    "@vercel/node": "^24.0.0"
   }
 }
