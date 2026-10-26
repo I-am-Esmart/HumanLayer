@@ -7,7 +7,7 @@
  */
 
 import { createHash, randomBytes } from 'crypto'
-import type { AgentProfile, DailySpend, WorkerDiscoveryRecord } from './types'
+import type { AgentProfile, DailySpend, WorkerDiscoveryRecord } from './types.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
