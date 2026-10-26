@@ -30,7 +30,7 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import ABI from '../src/lib/humanlayer-abi.json'
+import ABI from '../src/lib/humanlayer-abi.json' with { type: 'json' }
 
 
 
