@@ -38,7 +38,7 @@ import {
   registerAgent,
   getWorkers,
   getWorkerByAddress,
-} from '../server/store.ts'
+} from '../server/store.js'
 import {
   extractBearerToken,
   parseUsdcHuman,
@@ -47,8 +47,8 @@ import {
   isValidCategory,
   isCategoryAllowed,
   isValidAddress,
-} from '../server/validate.ts'
-import type { AgentBountyFormat, AgentSubmissionFormat } from '../server/types.ts'
+} from '../server/validate.js'
+import type { AgentBountyFormat, AgentSubmissionFormat } from '../server/types.js'
 import ABI from '../src/lib/humanlayer-abi.json'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
