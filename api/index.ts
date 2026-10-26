@@ -568,7 +568,7 @@ const rpcClient: PublicClient = createPublicClient({
 const BOUNTY_STATUS_MAP = ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'DISPUTED', 'CANCELLED'] as const
 const SUBMISSION_STATUS_MAP = ['PENDING', 'APPROVED', 'REJECTED', 'DISPUTED'] as const
 const CATEGORY_FROM_INDEX = ['Science', 'Software', 'Research', 'ImageData', 'Language', 'BiologyMedicine']
-const VALID_CATEGORIES = ['Science', 'Software', 'Research', 'ImageData', 'Language', 'BiologyMedicine']
+const VALID_CATEGORIES_ONCHAIN = ['Science', 'Software', 'Research', 'ImageData', 'Language', 'BiologyMedicine']
 
 // ─── Rate limiting (per-instance in-memory) ───────────────────────────────────
 
@@ -828,7 +828,7 @@ async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse)
         step: 1, action: 'createBounty', contract: CONTRACT_ADDRESS,
         function: 'createBounty(uint8,bytes32,uint256,uint256,uint64)',
         args: {
-          category: VALID_CATEGORIES.indexOf(category),
+          category: VALID_CATEGORIES_ONCHAIN.indexOf(category),
           taskRef: '0x<keccak256_of_task_description>',
           rewardPerWorker: rewardRaw.toString(),
           requiredWorkers: workers,
