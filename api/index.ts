@@ -1183,7 +1183,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
     // POST /api/agents/register
     if (method === 'POST' && parts[1] === 'agents' && parts[2] === 'register')
-      return handleRegister(req, res)
+      return await handleRegister(req, res)
   
     // GET /api/agents/workers
     if (method === 'GET' && parts[1] === 'agents' && parts[2] === 'workers')
@@ -1191,39 +1191,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
     // GET /api/agents/:id
     if (method === 'GET' && parts[1] === 'agents' && parts[2] && !parts[3])
-      return handleGetAgent(res, parts[2])
+      return await handleGetAgent(res, parts[2])
   
     // GET /api/agents/:id/reputation
     if (method === 'GET' && parts[1] === 'agents' && parts[2] && parts[3] === 'reputation')
-      return handleGetAgentReputation(res, parts[2])
+      return await handleGetAgentReputation(res, parts[2])
   
     // GET /api/agents/:id/activity
     if (method === 'GET' && parts[1] === 'agents' && parts[2] && parts[3] === 'activity')
-      return handleGetAgentActivity(res, parts[2])
+      return await handleGetAgentActivity(res, parts[2])
   
     // GET /api/bounties
     if (method === 'GET' && parts[1] === 'bounties' && !parts[2])
-      return handleListBounties(req, res)
+      return await handleListBounties(req, res)
   
     // POST /api/bounties
     if (method === 'POST' && parts[1] === 'bounties' && !parts[2])
-      return handleCreateBountyIntent(req, res)
+      return await handleCreateBountyIntent(req, res)
   
     // GET /api/bounties/:id
     if (method === 'GET' && parts[1] === 'bounties' && parts[2] && !parts[3])
-      return handleGetBounty(req, res, parts[2])
+      return await handleGetBounty(req, res, parts[2])
   
     // GET /api/bounties/:id/submissions
     if (method === 'GET' && parts[1] === 'bounties' && parts[2] && parts[3] === 'submissions')
-      return handleGetSubmissions(req, res, parts[2])
+      return await handleGetSubmissions(req, res, parts[2])
   
     // POST /api/bounties/:id/submit
     if (method === 'POST' && parts[1] === 'bounties' && parts[2] && parts[3] === 'submit')
-      return handleSubmitWork(req, res, parts[2])
+      return await handleSubmitWork(req, res, parts[2])
   
     // GET /api/workers/:address
     if (method === 'GET' && parts[1] === 'workers' && parts[2])
-      return handleGetWorkerProfile(res, parts[2])
+      return await handleGetWorkerProfile(res, parts[2])
   
     return json(res, 404, {
       error: 'Endpoint not found.',
