@@ -204,7 +204,7 @@ class StorageError extends Error {
   }
 }
 
-const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\\/+$/, '')
+const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/+$/, '')
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 let demoSeedPromise: Promise<void> | null = null
 
