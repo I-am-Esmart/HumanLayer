@@ -543,7 +543,7 @@ export async function checkSpendingLimits(
   agent: AgentProfile,
   rewardRaw: bigint,
   requiredWorkers: number
-): SpendCheck {
+): Promise<SpendCheck> {
   const totalRaw = rewardRaw * BigInt(requiredWorkers)
   const limits = agent.spendingLimits
 
