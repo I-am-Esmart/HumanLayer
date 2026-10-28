@@ -941,7 +941,7 @@ async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse)
     onchain_steps: [
       {
         step: 1, action: 'createBounty', contract: CONTRACT_ADDRESS,
-        function: 'createBounty(uint8,bytes32,uint256,uint256,uint64)',
+        function: 'createBounty(uint8,bytes32,uint8,uint256,uint256)',
         args: {
           category: VALID_CATEGORIES_ONCHAIN.indexOf(category),
           taskRef: '0x<keccak256_of_task_description>',
