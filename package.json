@@ -13,6 +13,7 @@
     "lint": "oxlint --type-aware src scripts --fix; s=$?; oxlint --fix .; exit $((s>0?s:$?))",
     "typecheck": "tsc --noEmit",
     "check": "bash scripts/check.sh",
+    "test:api-contract-intent": "node scripts/test-create-bounty-intent.mjs",
     "contracts:build": "forge build",
     "contracts:test": "forge test"
   },
