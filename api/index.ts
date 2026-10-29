@@ -171,56 +171,155 @@ export function todayUtc(): string {
 
 // ─── Agent store ──────────────────────────────────────────────────────────────
 
-const agents = new Map<string, AgentProfile>()          // agentId → profile
-const apiKeyHashIndex = new Map<string, string>()       // apiKeyHash → agentId
-const walletIndex = new Map<string, string>()           // lowerAddress → agentId
 
-/** Seed: built-in demo Research Agent */
-function seedDemoAgent() {
-  const demoKey = 'hl_demo_research_agent_key_not_for_production'
-  const demoId = 'demo-research-agent-001'
-  // arc-studio-allow-onchain-literal: placeholder wallet for demo agent only
-  const demoWallet = '0x0000000000000000000000000000000000000001'
-  const profile: AgentProfile = {
-    agentId: demoId,
-    name: 'Research Verification Agent',
-    description:
-      'A simulated AI agent that posts research verification tasks to HumanLayer. ' +
-      'This is a DEMO agent — it does not autonomously execute onchain transactions.',
-    ownerWallet: demoWallet,
-    apiKey: '',
-    apiKeyHash: hashApiKey(demoKey),
-    supportedCategories: ['Research', 'Science', 'BiologyMedicine'],
-    spendingLimits: {
-      perTaskMax: '5000000',    // $5.00 USDC
-      dailyLimit: '50000000',   // $50.00 USDC
-      totalBudget: '500000000', // $500.00 USDC
-    },
-    totalFundedRaw: '25000000',  // $25 seeded
-    totalSpentRaw: '12500000',   // $12.50 spent
-    tasksCreated: 5,
-    reputation: 92,
-    registeredAt: Date.now() - 7 * 24 * 3600 * 1000,
-    isDemo: true,
-  }
-  agents.set(demoId, profile)
-  apiKeyHashIndex.set(profile.apiKeyHash, demoId)
-  walletIndex.set(demoWallet.toLowerCase(), demoId)
+/**
+ * Persistent agent/spending storage backed by Supabase Postgres over REST.
+ * SUPABASE_SERVICE_ROLE_KEY is server-only and must never use a VITE_ prefix.
+ */
+type StoredAgentRow = {
+  agent_id: string
+  name: string
+  description: string
+  owner_wallet: string
+  owner_wallet_lower: string
+  api_key_hash: string
+  supported_categories: TaskCategory[]
+  spending_limits: AgentProfile['spendingLimits']
+  total_funded_raw: string | number
+  total_spent_raw: string | number
+  tasks_created: number
+  reputation: number
+  registered_at: string | number
+  is_demo: boolean
 }
 
-seedDemoAgent()
+class StorageError extends Error {
+  statusCode: number
+  code?: string
+  constructor(message: string, statusCode = 503, code?: string) {
+    super(message)
+    this.name = 'StorageError'
+    this.statusCode = statusCode
+    this.code = code
+  }
+}
 
-export function registerAgent(data: {
+const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/+$/, '')
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+let demoSeedPromise: Promise<void> | null = null
+
+function storageIsConfigured(): boolean {
+  return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY)
+}
+
+async function supabaseRequest<T = unknown>(resource: string, init: RequestInit = {}): Promise<T> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new StorageError(
+      'Persistent storage is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel.',
+      503,
+      'STORAGE_NOT_CONFIGURED',
+    )
+  }
+
+  const headers = new Headers(init.headers)
+  headers.set('apikey', SUPABASE_SERVICE_ROLE_KEY)
+  headers.set('Authorization', `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`)
+  headers.set('Content-Type', 'application/json')
+  if (!headers.has('Prefer') && init.method && init.method !== 'GET') headers.set('Prefer', 'return=representation')
+
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${resource}`, { ...init, headers })
+  const body = await response.text()
+  if (!response.ok) {
+    let code: string | undefined
+    let details = ''
+    try {
+      const parsed = JSON.parse(body) as { code?: string; message?: string; details?: string }
+      code = parsed.code
+      details = parsed.message ?? parsed.details ?? ''
+    } catch {
+      details = body.slice(0, 200)
+    }
+    throw new StorageError(
+      `Persistent storage request failed (HTTP ${response.status})${code ? ` [${code}]` : ''}${details ? `: ${details}` : ''}`,
+      response.status === 409 ? 409 : 503,
+      code,
+    )
+  }
+  if (!body) return undefined as T
+  return JSON.parse(body) as T
+}
+
+function agentFromRow(row: StoredAgentRow): AgentProfile {
+  return {
+    agentId: row.agent_id,
+    name: row.name,
+    description: row.description ?? '',
+    ownerWallet: row.owner_wallet,
+    apiKey: '',
+    apiKeyHash: row.api_key_hash,
+    supportedCategories: row.supported_categories ?? [],
+    spendingLimits: row.spending_limits,
+    totalFundedRaw: String(row.total_funded_raw ?? '0'),
+    totalSpentRaw: String(row.total_spent_raw ?? '0'),
+    tasksCreated: Number(row.tasks_created ?? 0),
+    reputation: Number(row.reputation ?? 50),
+    registeredAt: Number(row.registered_at),
+    isDemo: Boolean(row.is_demo),
+  }
+}
+
+async function ensurePersistentStore(): Promise<void> {
+  if (!storageIsConfigured()) {
+    throw new StorageError(
+      'Persistent storage is not configured. Run docs/supabase-schema.sql in Supabase SQL Editor, then set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel.',
+      503,
+      'STORAGE_NOT_CONFIGURED',
+    )
+  }
+  if (!demoSeedPromise) {
+    demoSeedPromise = (async () => {
+      const demoKey = 'hl_demo_research_agent_key_not_for_production'
+      const demoWallet = '0x0000000000000000000000000000000000000001'
+      const row = {
+        agent_id: 'demo-research-agent-001',
+        name: 'Research Verification Agent',
+        description: 'A simulated AI agent that posts research verification tasks to HumanLayer. This is a DEMO agent — it does not autonomously execute onchain transactions.',
+        owner_wallet: demoWallet,
+        owner_wallet_lower: demoWallet.toLowerCase(),
+        api_key_hash: hashApiKey(demoKey),
+        supported_categories: ['Research', 'Science', 'BiologyMedicine'],
+        spending_limits: { perTaskMax: '5000000', dailyLimit: '50000000', totalBudget: '500000000' },
+        total_funded_raw: '25000000',
+        total_spent_raw: '12500000',
+        tasks_created: 5,
+        reputation: 92,
+        registered_at: Date.now() - 7 * 24 * 3600 * 1000,
+        is_demo: true,
+      }
+      await supabaseRequest('humanlayer_agents?on_conflict=agent_id', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' },
+        body: JSON.stringify(row),
+      })
+    })().catch((error) => {
+      demoSeedPromise = null
+      throw error
+    })
+  }
+  await demoSeedPromise
+}
+
+export async function registerAgent(data: {
   name: string
   description: string
   ownerWallet: string
   supportedCategories: AgentProfile['supportedCategories']
   spendingLimits: AgentProfile['spendingLimits']
-}): { agent: AgentProfile; rawApiKey: string } {
+}): Promise<{ agent: AgentProfile; rawApiKey: string }> {
+  await ensurePersistentStore()
   const rawApiKey = generateApiKey()
-  const agentId = generateId()
   const profile: AgentProfile = {
-    agentId,
+    agentId: generateId(),
     name: data.name.trim(),
     description: data.description.trim(),
     ownerWallet: data.ownerWallet,
@@ -235,65 +334,79 @@ export function registerAgent(data: {
     registeredAt: Date.now(),
     isDemo: false,
   }
-  agents.set(agentId, profile)
-  apiKeyHashIndex.set(profile.apiKeyHash, agentId)
-  walletIndex.set(data.ownerWallet.toLowerCase(), agentId)
+  const row = {
+    agent_id: profile.agentId,
+    name: profile.name,
+    description: profile.description,
+    owner_wallet: profile.ownerWallet,
+    owner_wallet_lower: profile.ownerWallet.toLowerCase(),
+    api_key_hash: profile.apiKeyHash,
+    supported_categories: profile.supportedCategories,
+    spending_limits: profile.spendingLimits,
+    total_funded_raw: profile.totalFundedRaw,
+    total_spent_raw: profile.totalSpentRaw,
+    tasks_created: profile.tasksCreated,
+    reputation: profile.reputation,
+    registered_at: profile.registeredAt,
+    is_demo: false,
+  }
+  await supabaseRequest('humanlayer_agents', { method: 'POST', body: JSON.stringify(row) })
   return { agent: { ...profile, apiKey: rawApiKey }, rawApiKey }
 }
 
-export function getAgentById(agentId: string): AgentProfile | undefined {
-  return agents.get(agentId)
+export async function getAgentById(agentId: string): Promise<AgentProfile | undefined> {
+  await ensurePersistentStore()
+  const rows = await supabaseRequest<StoredAgentRow[]>(
+    `humanlayer_agents?select=*&agent_id=eq.${encodeURIComponent(agentId)}&limit=1`,
+  )
+  return rows[0] ? agentFromRow(rows[0]) : undefined
 }
 
-export function getAgentByApiKey(rawKey: string): AgentProfile | undefined {
-  const hash = hashApiKey(rawKey)
-  const agentId = apiKeyHashIndex.get(hash)
-  if (!agentId) return undefined
-  return agents.get(agentId)
+export async function getAgentByApiKey(rawKey: string): Promise<AgentProfile | undefined> {
+  await ensurePersistentStore()
+  const rows = await supabaseRequest<StoredAgentRow[]>(
+    `humanlayer_agents?select=*&api_key_hash=eq.${encodeURIComponent(hashApiKey(rawKey))}&limit=1`,
+  )
+  return rows[0] ? agentFromRow(rows[0]) : undefined
 }
 
-export function getAgentByWallet(address: string): AgentProfile | undefined {
-  const agentId = walletIndex.get(address.toLowerCase())
-  if (!agentId) return undefined
-  return agents.get(agentId)
+export async function getAgentByWallet(address: string): Promise<AgentProfile | undefined> {
+  await ensurePersistentStore()
+  const rows = await supabaseRequest<StoredAgentRow[]>(
+    `humanlayer_agents?select=*&owner_wallet_lower=eq.${encodeURIComponent(address.toLowerCase())}&limit=1`,
+  )
+  return rows[0] ? agentFromRow(rows[0]) : undefined
 }
 
-export function getAllAgents(): AgentProfile[] {
-  return [...agents.values()]
+export async function incrementTasksCreated(agentId: string, rewardRaw: bigint): Promise<void> {
+  await ensurePersistentStore()
+  await supabaseRequest('rpc/increment_humanlayer_tasks_created', {
+    method: 'POST',
+    body: JSON.stringify({ p_agent_id: agentId, p_reward_raw: rewardRaw.toString() }),
+  })
 }
 
-export function incrementTasksCreated(agentId: string, rewardRaw: bigint): void {
-  const agent = agents.get(agentId)
-  if (!agent) return
-  agent.tasksCreated++
-  agent.totalFundedRaw = String(BigInt(agent.totalFundedRaw) + rewardRaw)
-  agents.set(agentId, agent)
+export async function recordSpend(agentId: string, spentRaw: bigint): Promise<void> {
+  await ensurePersistentStore()
+  await supabaseRequest('rpc/record_humanlayer_agent_spend', {
+    method: 'POST',
+    body: JSON.stringify({ p_agent_id: agentId, p_spent_raw: spentRaw.toString() }),
+  })
 }
 
-export function recordSpend(agentId: string, spentRaw: bigint): void {
-  const agent = agents.get(agentId)
-  if (!agent) return
-  agent.totalSpentRaw = String(BigInt(agent.totalSpentRaw) + spentRaw)
-  agents.set(agentId, agent)
+export async function getDailySpent(agentId: string): Promise<bigint> {
+  await ensurePersistentStore()
+  const rows = await supabaseRequest<Array<{ spent_raw: string | number }>>(
+    `humanlayer_daily_spends?select=spent_raw&agent_id=eq.${encodeURIComponent(agentId)}&date_utc=eq.${todayUtc()}&limit=1`,
+  )
+  return rows[0] ? BigInt(String(rows[0].spent_raw)) : 0n
 }
 
-// ─── Daily spend tracking ─────────────────────────────────────────────────────
-
-const dailySpends = new Map<string, DailySpend>()
-
-export function getDailySpent(agentId: string): bigint {
-  const key = `${agentId}:${todayUtc()}`
-  const entry = dailySpends.get(key)
-  return entry ? BigInt(entry.spentRaw) : 0n
-}
-
-export function recordDailySpend(agentId: string, spentRaw: bigint): void {
-  const key = `${agentId}:${todayUtc()}`
-  const existing = dailySpends.get(key)
-  dailySpends.set(key, {
-    agentId,
-    dateUtc: todayUtc(),
-    spentRaw: String((existing ? BigInt(existing.spentRaw) : 0n) + spentRaw),
+export async function recordDailySpend(agentId: string, spentRaw: bigint): Promise<void> {
+  await ensurePersistentStore()
+  await supabaseRequest('rpc/record_humanlayer_daily_spend', {
+    method: 'POST',
+    body: JSON.stringify({ p_agent_id: agentId, p_date_utc: todayUtc(), p_spent_raw: spentRaw.toString() }),
   })
 }
 
@@ -426,11 +539,11 @@ export interface SpendCheck {
   errorCode?: string
 }
 
-export function checkSpendingLimits(
+export async function checkSpendingLimits(
   agent: AgentProfile,
   rewardRaw: bigint,
   requiredWorkers: number
-): SpendCheck {
+): Promise<SpendCheck> {
   const totalRaw = rewardRaw * BigInt(requiredWorkers)
   const limits = agent.spendingLimits
 
@@ -446,7 +559,7 @@ export function checkSpendingLimits(
 
   // Daily limit check
   const dailyLimit = BigInt(limits.dailyLimit)
-  const dailySpent = getDailySpent(agent.agentId)
+  const dailySpent = await getDailySpent(agent.agentId)
   if (dailySpent + totalRaw > dailyLimit) {
     return {
       ok: false,
@@ -702,7 +815,7 @@ async function handleRegister(req: VercelRequest, res: VercelResponse) {
     return json(res, 400, { error: 'name must be at least 2 characters.' })
   if (!isValidAddress(owner_wallet))
     return json(res, 400, { error: 'owner_wallet must be a valid EVM address (0x...).' })
-  if (getAgentByWallet(owner_wallet as string))
+  if (await getAgentByWallet(owner_wallet as string))
     return json(res, 409, { error: 'This wallet address is already registered as an agent.' })
 
   const cats = Array.isArray(supported_categories) ? supported_categories : ['Research']
@@ -717,7 +830,7 @@ async function handleRegister(req: VercelRequest, res: VercelResponse) {
     totalBudget: String(limits.total_budget ?? '1000000000'),
   }
 
-  const { agent, rawApiKey } = registerAgent({
+  const { agent, rawApiKey } = await registerAgent({
     name: String(name),
     description: description ? String(description) : '',
     ownerWallet: owner_wallet as string,
@@ -730,7 +843,7 @@ async function handleRegister(req: VercelRequest, res: VercelResponse) {
     name: agent.name,
     owner_wallet: agent.ownerWallet,
     api_key: rawApiKey,
-    _warning: 'Store this api_key securely. It will not be shown again. NOTE: this registration is not durable across serverless restarts — see API docs for details.',
+    _warning: 'Store this api_key securely. It will not be shown again. Agent registration is stored in persistent Supabase Postgres storage.',
     supported_categories: agent.supportedCategories,
     spending_limits: {
       per_task_max_usdc: (Number(BigInt(spendingLimits.perTaskMax)) / 1e6).toFixed(2),
@@ -792,7 +905,7 @@ async function handleGetBounty(req: VercelRequest, res: VercelResponse, id: stri
 async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse) {
   const token = extractBearerToken(req.headers.authorization as string | undefined)
   if (!token) return json(res, 401, { error: 'Missing Authorization header. Use: Authorization: Bearer <api_key>' })
-  const agent = getAgentByApiKey(token)
+  const agent = await getAgentByApiKey(token)
   if (!agent) return json(res, 401, { error: 'Invalid API key.' })
 
   const body = req.body as Record<string, unknown> ?? {}
@@ -807,7 +920,7 @@ async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse)
   const workers = parseInt(String(body.required_workers))
   const days = parseInt(String(body.days_until_deadline))
 
-  const spendCheck = checkSpendingLimits(agent, rewardRaw, workers)
+  const spendCheck = await checkSpendingLimits(agent, rewardRaw, workers)
   if (!spendCheck.ok) return json(res, 403, { error: spendCheck.error, error_code: spendCheck.errorCode })
 
   const deadlineUnix = Math.floor(Date.now() / 1000) + days * 86400
@@ -828,7 +941,7 @@ async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse)
     onchain_steps: [
       {
         step: 1, action: 'createBounty', contract: CONTRACT_ADDRESS,
-        function: 'createBounty(uint8,bytes32,uint256,uint256,uint64)',
+        function: 'createBounty(uint8,bytes32,uint8,uint256,uint256)',
         args: {
           category: VALID_CATEGORIES_ONCHAIN.indexOf(category),
           taskRef: '0x<keccak256_of_task_description>',
@@ -902,8 +1015,8 @@ async function handleSubmitWork(req: VercelRequest, res: VercelResponse, bountyI
   })
 }
 
-function handleGetAgent(res: VercelResponse, agentId: string) {
-  const agent = getAgentById(agentId)
+async function handleGetAgent(res: VercelResponse, agentId: string) {
+  const agent = await getAgentById(agentId)
   if (!agent) return json(res, 404, { error: `Agent "${agentId}" not found.` })
   return json(res, 200, {
     agent_id: agent.agentId, name: agent.name, description: agent.description,
@@ -923,7 +1036,7 @@ function handleGetAgent(res: VercelResponse, agentId: string) {
 }
 
 async function handleGetAgentReputation(res: VercelResponse, agentId: string) {
-  const agent = getAgentById(agentId)
+  const agent = await getAgentById(agentId)
   if (!agent) return json(res, 404, { error: `Agent "${agentId}" not found.` })
   // arc-studio-allow-onchain-literal: demo wallet sentinel check
   const onchainRep = agent.ownerWallet !== '0x0000000000000000000000000000000000000001'
@@ -938,7 +1051,7 @@ async function handleGetAgentReputation(res: VercelResponse, agentId: string) {
 }
 
 async function handleGetAgentActivity(res: VercelResponse, agentId: string) {
-  const agent = getAgentById(agentId)
+  const agent = await getAgentById(agentId)
   if (!agent) return json(res, 404, { error: `Agent "${agentId}" not found.` })
 
   let bounties: AgentBountyFormat[] = []
@@ -1006,101 +1119,137 @@ async function handleGetWorkerProfile(res: VercelResponse, address: string) {
 // ─── Main handler (Vercel entry point) ────────────────────────────────────────
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const method = req.method?.toUpperCase() ?? 'GET'
-
-  // CORS preflight
-  if (method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    return res.status(204).end()
-  }
-
-  // Rate limiting
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? 'unknown'
-  const isWrite = method === 'POST' || method === 'PUT' || method === 'DELETE'
-  if (!checkRateLimit(ip, isWrite)) {
-    return json(res, 429, { error: 'Too many requests.', error_code: 'RATE_LIMITED', retry_after_seconds: 60 })
-  }
-
-  const url = req.url ?? '/'
-  const parts = pathParts(url)
-
-  // GET /health
-  if (parts[0] === 'health') {
-    return json(res, 200, {
-      status: 'ok',
-      service: 'HumanLayer Agent API',
-      version: '1.0.0',
-      chain: 'Arc Testnet',
-      contract_address: CONTRACT_ADDRESS,
-      note: 'In-memory store — agent registrations are not durable across cold starts.',
+  try {
+    const method = req.method?.toUpperCase() ?? 'GET'
+  
+    // CORS preflight
+    if (method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      return res.status(204).end()
+    }
+  
+    // Rate limiting
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? 'unknown'
+    const isWrite = method === 'POST' || method === 'PUT' || method === 'DELETE'
+    if (!checkRateLimit(ip, isWrite)) {
+      return json(res, 429, { error: 'Too many requests.', error_code: 'RATE_LIMITED', retry_after_seconds: 60 })
+    }
+  
+    const url = req.url ?? '/'
+    const parts = pathParts(url)
+  
+    // GET /health
+    if (parts[0] === 'health') {
+      let storageStatus: 'connected' | 'not_configured' | 'unavailable' = 'not_configured'
+      if (storageIsConfigured()) {
+        try {
+          await ensurePersistentStore()
+          storageStatus = 'connected'
+        } catch (error) {
+          storageStatus = 'unavailable'
+          console.error('Persistent storage health check failed:', error)
+        }
+      }
+      return json(res, 200, {
+        status: 'ok',
+        service: 'HumanLayer Agent API',
+        version: '1.0.0',
+        chain: 'Arc Testnet',
+        contract_address: CONTRACT_ADDRESS,
+        storage: storageStatus,
+        note: storageStatus === 'connected'
+          ? 'Agent registrations are stored in Supabase Postgres.'
+          : 'Persistent storage is not ready. Configure Supabase before using agent registration and agent-specific endpoints.',
+      })
+    }
+  
+    if (parts[0] !== 'api') {
+      return json(res, 404, { error: 'Not found. All endpoints are under /api/*' })
+    }
+  
+    const needsPersistentStorage =
+      (method === 'POST' && parts[1] === 'agents' && parts[2] === 'register') ||
+      (method === 'GET' && parts[1] === 'agents' && Boolean(parts[2]) && parts[2] !== 'workers') ||
+      (method === 'POST' && parts[1] === 'bounties' && !parts[2])
+    if (needsPersistentStorage && !storageIsConfigured()) {
+      return json(res, 503, {
+        error: 'Persistent agent storage is not configured.',
+        required_environment_variables: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+        setup: 'Run docs/supabase-schema.sql in Supabase SQL Editor, then add both server-only variables in Vercel.',
+      })
+    }
+  
+    // POST /api/agents/register
+    if (method === 'POST' && parts[1] === 'agents' && parts[2] === 'register')
+      return await handleRegister(req, res)
+  
+    // GET /api/agents/workers
+    if (method === 'GET' && parts[1] === 'agents' && parts[2] === 'workers')
+      return handleDiscoverWorkers(req, res)
+  
+    // GET /api/agents/:id
+    if (method === 'GET' && parts[1] === 'agents' && parts[2] && !parts[3])
+      return await handleGetAgent(res, parts[2])
+  
+    // GET /api/agents/:id/reputation
+    if (method === 'GET' && parts[1] === 'agents' && parts[2] && parts[3] === 'reputation')
+      return await handleGetAgentReputation(res, parts[2])
+  
+    // GET /api/agents/:id/activity
+    if (method === 'GET' && parts[1] === 'agents' && parts[2] && parts[3] === 'activity')
+      return await handleGetAgentActivity(res, parts[2])
+  
+    // GET /api/bounties
+    if (method === 'GET' && parts[1] === 'bounties' && !parts[2])
+      return await handleListBounties(req, res)
+  
+    // POST /api/bounties
+    if (method === 'POST' && parts[1] === 'bounties' && !parts[2])
+      return await handleCreateBountyIntent(req, res)
+  
+    // GET /api/bounties/:id
+    if (method === 'GET' && parts[1] === 'bounties' && parts[2] && !parts[3])
+      return await handleGetBounty(req, res, parts[2])
+  
+    // GET /api/bounties/:id/submissions
+    if (method === 'GET' && parts[1] === 'bounties' && parts[2] && parts[3] === 'submissions')
+      return await handleGetSubmissions(req, res, parts[2])
+  
+    // POST /api/bounties/:id/submit
+    if (method === 'POST' && parts[1] === 'bounties' && parts[2] && parts[3] === 'submit')
+      return await handleSubmitWork(req, res, parts[2])
+  
+    // GET /api/workers/:address
+    if (method === 'GET' && parts[1] === 'workers' && parts[2])
+      return await handleGetWorkerProfile(res, parts[2])
+  
+    return json(res, 404, {
+      error: 'Endpoint not found.',
+      available_endpoints: [
+        'GET  /health',
+        'POST /api/agents/register',
+        'GET  /api/agents/:id',
+        'GET  /api/agents/:id/reputation',
+        'GET  /api/agents/:id/activity',
+        'GET  /api/agents/workers',
+        'GET  /api/bounties',
+        'POST /api/bounties',
+        'GET  /api/bounties/:id',
+        'GET  /api/bounties/:id/submissions',
+        'POST /api/bounties/:id/submit',
+        'GET  /api/workers/:address',
+      ],
     })
+  } catch (error) {
+    console.error('Unhandled HumanLayer API error:', error)
+    if (error instanceof StorageError) {
+      return json(res, error.statusCode, {
+        error: error.code === 'STORAGE_NOT_CONFIGURED' ? 'Persistent storage is not configured.' : 'Persistent storage request failed.',
+        code: error.code ?? 'STORAGE_ERROR',
+      })
+    }
+    return json(res, 500, { error: 'Internal server error.' })
   }
-
-  if (parts[0] !== 'api') {
-    return json(res, 404, { error: 'Not found. All endpoints are under /api/*' })
-  }
-
-  // POST /api/agents/register
-  if (method === 'POST' && parts[1] === 'agents' && parts[2] === 'register')
-    return handleRegister(req, res)
-
-  // GET /api/agents/workers
-  if (method === 'GET' && parts[1] === 'agents' && parts[2] === 'workers')
-    return handleDiscoverWorkers(req, res)
-
-  // GET /api/agents/:id
-  if (method === 'GET' && parts[1] === 'agents' && parts[2] && !parts[3])
-    return handleGetAgent(res, parts[2])
-
-  // GET /api/agents/:id/reputation
-  if (method === 'GET' && parts[1] === 'agents' && parts[2] && parts[3] === 'reputation')
-    return handleGetAgentReputation(res, parts[2])
-
-  // GET /api/agents/:id/activity
-  if (method === 'GET' && parts[1] === 'agents' && parts[2] && parts[3] === 'activity')
-    return handleGetAgentActivity(res, parts[2])
-
-  // GET /api/bounties
-  if (method === 'GET' && parts[1] === 'bounties' && !parts[2])
-    return handleListBounties(req, res)
-
-  // POST /api/bounties
-  if (method === 'POST' && parts[1] === 'bounties' && !parts[2])
-    return handleCreateBountyIntent(req, res)
-
-  // GET /api/bounties/:id
-  if (method === 'GET' && parts[1] === 'bounties' && parts[2] && !parts[3])
-    return handleGetBounty(req, res, parts[2])
-
-  // GET /api/bounties/:id/submissions
-  if (method === 'GET' && parts[1] === 'bounties' && parts[2] && parts[3] === 'submissions')
-    return handleGetSubmissions(req, res, parts[2])
-
-  // POST /api/bounties/:id/submit
-  if (method === 'POST' && parts[1] === 'bounties' && parts[2] && parts[3] === 'submit')
-    return handleSubmitWork(req, res, parts[2])
-
-  // GET /api/workers/:address
-  if (method === 'GET' && parts[1] === 'workers' && parts[2])
-    return handleGetWorkerProfile(res, parts[2])
-
-  return json(res, 404, {
-    error: 'Endpoint not found.',
-    available_endpoints: [
-      'GET  /health',
-      'POST /api/agents/register',
-      'GET  /api/agents/:id',
-      'GET  /api/agents/:id/reputation',
-      'GET  /api/agents/:id/activity',
-      'GET  /api/agents/workers',
-      'GET  /api/bounties',
-      'POST /api/bounties',
-      'GET  /api/bounties/:id',
-      'GET  /api/bounties/:id/submissions',
-      'POST /api/bounties/:id/submit',
-      'GET  /api/workers/:address',
-    ],
-  })
 }
