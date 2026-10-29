@@ -557,12 +557,12 @@ contract HumanLayerTest is Test {
     }
 
     // =========================================================================
-    // 29. test_ResolveDispute_WorkerWins_BountyFull
-    //     resolveDispute reverts BountyFull when acceptedCount >= requiredWorkers.
+    // 29. test_DisputeSubmission_CompletedBounty_RevertsBountyFull
+    //     disputeSubmission reverts BountyFull when bounty is already Completed/Full.
     // =========================================================================
-    function test_ResolveDispute_WorkerWins_BountyFull() public {
-        // requiredWorkers=1; both alice and bob submit, alice is approved (fills bounty).
-        // Bob is rejected and disputes. Resolving in bob's favour must revert BountyFull.
+    function test_DisputeSubmission_CompletedBounty_RevertsBountyFull() public {
+        // requiredWorkers=1; alice and bob submit, alice is approved (fills bounty).
+        // Bob is rejected. Bob attempting to dispute a full/completed bounty must revert BountyFull.
         uint256 bountyId   = _createAndFund(1);
         uint256 subIdAlice = _submitWork(alice, bountyId);
         uint256 subIdBob   = _submitWork(bob,   bountyId);
@@ -571,18 +571,106 @@ contract HumanLayerTest is Test {
         vm.prank(creator);
         hl.approveSubmission(subIdAlice);
 
-        // Reject bob (bounty is Completed; rejectSubmission only checks NotCreator + NotPending)
+        HumanLayer.Bounty memory b = hl.getBounty(bountyId);
+        assertEq(uint8(b.status), uint8(HumanLayer.BountyStatus.Completed), "bounty is Completed");
+
+        // Reject bob
         vm.prank(creator);
         hl.rejectSubmission(subIdBob);
 
-        // Bob disputes → bounty goes Disputed
+        // Bob disputes → must revert BountyFull because bounty is already full/completed
+        vm.prank(bob);
+        vm.expectRevert(HumanLayer.BountyFull.selector);
+        hl.disputeSubmission(subIdBob);
+    }
+
+    // =========================================================================
+    // 29b. test_ResolveDispute_WorkerLoss_CompletedBounty_StaysCompleted
+    //      If a dispute is resolved with workerWins=false and acceptedCount >= requiredWorkers,
+    //      the bounty returns to Completed status (never incorrectly reopened to InProgress).
+    // =========================================================================
+    function test_ResolveDispute_WorkerLoss_CompletedBounty_StaysCompleted() public {
+        uint256 bountyId   = _createAndFund(1);
+        uint256 subIdAlice = _submitWork(alice, bountyId);
+
+        // Alice is rejected and disputes before bounty is completed
+        vm.prank(creator);
+        hl.rejectSubmission(subIdAlice);
+
+        vm.prank(alice);
+        hl.disputeSubmission(subIdAlice);
+
+        // Admin resolves dispute: worker loses
+        vm.prank(owner);
+        hl.resolveDispute(subIdAlice, false);
+
+        HumanLayer.Submission memory s = hl.getSubmission(subIdAlice);
+        assertEq(uint8(s.status), uint8(HumanLayer.SubmissionStatus.Rejected), "submission Rejected");
+
+        HumanLayer.Bounty memory b = hl.getBounty(bountyId);
+        assertEq(uint8(b.status), uint8(HumanLayer.BountyStatus.Open), "bounty returns to Open (acceptedCount==0)");
+    }
+
+    // =========================================================================
+    // 29c. test_ResolveDispute_MultipleDisputes_MaintainsDisputedUntilLastResolved
+    //      When multiple submissions are disputed, resolving one leaves bounty in Disputed
+    //      until all active disputes are resolved.
+    // =========================================================================
+    function test_ResolveDispute_MultipleDisputes_MaintainsDisputedUntilLastResolved() public {
+        uint256 bountyId   = _createAndFund(2);
+        uint256 subIdAlice = _submitWork(alice, bountyId);
+        uint256 subIdBob   = _submitWork(bob,   bountyId);
+
+        // Reject both
+        vm.prank(creator);
+        hl.rejectSubmission(subIdAlice);
+        vm.prank(creator);
+        hl.rejectSubmission(subIdBob);
+
+        // Both dispute
+        vm.prank(alice);
+        hl.disputeSubmission(subIdAlice);
         vm.prank(bob);
         hl.disputeSubmission(subIdBob);
 
-        // resolveDispute with workerWins=true must revert BountyFull (acceptedCount >= requiredWorkers)
+        HumanLayer.Bounty memory bBefore = hl.getBounty(bountyId);
+        assertEq(uint8(bBefore.status), uint8(HumanLayer.BountyStatus.Disputed), "bounty Disputed");
+
+        // Resolve Alice's dispute (workerWins=true)
         vm.prank(owner);
-        vm.expectRevert(HumanLayer.BountyFull.selector);
-        hl.resolveDispute(subIdBob, true);
+        hl.resolveDispute(subIdAlice, true);
+
+        // Bob's dispute is still open → bounty MUST remain Disputed
+        HumanLayer.Bounty memory bMid = hl.getBounty(bountyId);
+        assertEq(uint8(bMid.status), uint8(HumanLayer.BountyStatus.Disputed), "bounty still Disputed");
+
+        // Resolve Bob's dispute (workerWins=false)
+        vm.prank(owner);
+        hl.resolveDispute(subIdBob, false);
+
+        // All disputes resolved: acceptedCount == 1 < requiredWorkers(2) → InProgress
+        HumanLayer.Bounty memory bFinal = hl.getBounty(bountyId);
+        assertEq(uint8(bFinal.status), uint8(HumanLayer.BountyStatus.InProgress), "bounty InProgress");
+    }
+
+    // =========================================================================
+    // 29d. test_ApproveSubmission_WhenDisputed_RevertsInvalidBountyStatus
+    // =========================================================================
+    function test_ApproveSubmission_WhenDisputed_RevertsInvalidBountyStatus() public {
+        uint256 bountyId   = _createAndFund(2);
+        uint256 subIdAlice = _submitWork(alice, bountyId);
+        uint256 subIdBob   = _submitWork(bob,   bountyId);
+
+        vm.prank(creator);
+        hl.rejectSubmission(subIdAlice);
+
+        vm.prank(alice);
+        hl.disputeSubmission(subIdAlice);
+
+        // Creator attempts to approve Bob while bounty is under dispute → reverts
+        vm.prank(creator);
+        vm.expectRevert(HumanLayer.InvalidBountyStatus.selector);
+        hl.approveSubmission(subIdBob);
     }
 
     // =========================================================================
