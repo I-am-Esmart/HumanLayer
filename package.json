@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "check": "bash scripts/check.sh",
     "test:api-contract-intent": "bun run scripts/test-create-bounty-intent.ts",
+    "test:spend-reservations": "bun run scripts/test-spend-reservations.ts",
     "contracts:build": "forge build",
     "contracts:test": "forge test"
   },

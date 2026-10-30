@@ -100,8 +100,20 @@ export const api = {
     },
     get: (id: number) => apiFetch<AgentBountyFormat>(`/api/bounties/${id}`),
     submissions: (id: number) => apiFetch<{ total: number; submissions: AgentSubmissionFormat[] }>(`/api/bounties/${id}/submissions`),
-    createIntent: (apiKey: string, body: Record<string, unknown>) =>
+    createIntent: (apiKey: string, body: Record<string, unknown>, idempotencyKey = crypto.randomUUID()) =>
       apiFetch<Record<string, unknown>>('/api/bounties', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(body),
+      }),
+    confirmReservation: (apiKey: string, reservationId: string, body: { tx_hash: string; bounty_id: string | number }) =>
+      apiFetch<Record<string, unknown>>(`/api/bounties/reservations/${encodeURIComponent(reservationId)}/confirm`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify(body),
+      }),
+    releaseReservation: (apiKey: string, reservationId: string, body: { tx_hash: string }) =>
+      apiFetch<Record<string, unknown>>(`/api/bounties/reservations/${encodeURIComponent(reservationId)}/release`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify(body),
