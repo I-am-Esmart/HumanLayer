@@ -1,0 +1,35 @@
+name: HumanLayer checks
+
+on:
+  pull_request:
+    branches: [main, persistent-storage]
+  push:
+    branches: [main, persistent-storage, "fix/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    name: API ABI, lint, and TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run test:api-contract-intent
+      - run: bun run check
+
+  contracts:
+    name: Foundry contract tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge test -vvv

@@ -11,8 +11,8 @@ import {
   type Blockchain as ScpBlockchain,
   type CircleSmartContractPlatformClient,
 } from '@circle-fin/smart-contract-platform';
-import { getChain } from '@circlefin/compass-chains';
-import { type Abi, type Hex, createPublicClient, createWalletClient, encodeFunctionData, http, keccak256 } from 'viem';
+import { type Abi, type Chain, type Hex, createPublicClient, createWalletClient, encodeFunctionData, http, keccak256 } from 'viem';
+import * as viemChains from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import {
@@ -63,12 +63,36 @@ const ACTIVE_CHAIN: ChainConfig = {
   gasToken: 'native',
 };
 
-function resolveChainDef(compassChain: string): ReturnType<typeof getChain> {
-  try {
-    return getChain(compassChain);
-  } catch {
-    throw new Error(`Unknown --compass-chain "${compassChain}". Expected a Compass chain id (e.g. Arc_Testnet, Base_Sepolia).`);
+function normalizeChainName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function isChain(value: unknown): value is Chain {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    typeof value.id === 'number' &&
+    'name' in value &&
+    typeof value.name === 'string' &&
+    'nativeCurrency' in value
+  );
+}
+
+function resolveChainDef(compassChain: string): Chain {
+  const normalizedName = normalizeChainName(compassChain);
+  const chain =
+    Object.values(viemChains).find(
+      (candidate) => isChain(candidate) && normalizeChainName(candidate.name) === normalizedName,
+    ) ??
+    (normalizedName === 'arcmainnet' ? viemChains.arc : undefined) ??
+    (normalizedName === 'arctestnet' ? viemChains.arcTestnet : undefined);
+
+  if (!chain || !isChain(chain)) {
+    throw new Error(`Unknown --compass-chain "${compassChain}". Expected a supported viem chain (e.g. Arc_Mainnet, Arc_Testnet, Base_Sepolia).`);
   }
+
+  return chain;
 }
 
 function explorerUrlFor(address: string): string {
@@ -361,7 +385,11 @@ export function parseArgs(argv: string[]): CliOptions {
   const chainDef = resolveChainDef(compassChain);
   ACTIVE_CHAIN.circleBlockchain = blockchain;
   ACTIVE_CHAIN.compassChain = compassChain;
-  ACTIVE_CHAIN.explorer = explorerOverride ?? chainDef.explorerUrl ?? '';
+  ACTIVE_CHAIN.explorer =
+    explorerOverride ??
+    (chainDef.id === viemChains.arcTestnet.id
+      ? 'https://explorer.testnet.arc.io'
+      : chainDef.blockExplorers?.default.url ?? '');
   ACTIVE_CHAIN.chainLabel = chainLabelOverride ?? chainDef.name;
   ACTIVE_CHAIN.gasToken = gasTokenOverride ?? (chainDef.nativeCurrency.symbol === 'USDC' ? 'usdc' : 'native');
 

@@ -945,8 +945,8 @@ async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse)
         args: {
           category: VALID_CATEGORIES_ONCHAIN.indexOf(category),
           taskRef: '0x<keccak256_of_task_description>',
-          rewardPerWorker: rewardRaw.toString(),
           requiredWorkers: workers,
+          rewardPerWorker: rewardRaw.toString(),
           deadline: deadlineUnix,
         },
         note: 'Emits BountyCreated. Parse bountyId from event logs.',
