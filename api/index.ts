@@ -11,28 +11,23 @@
  * - All financial operations must be executed onchain by the caller's wallet.
  * - Agent API keys are SHA-256-hashed before storage; the plaintext is
  *   returned once on registration and never stored.
- * - The in-memory store does NOT persist across serverless invocations.
- *   See LIMITATIONS below.
+ * - Agent profiles and spending records are persisted in Supabase Postgres.
+ * - The API only plans transactions; it never signs or submits them.
  *
  * LIMITATIONS OF THIS DEPLOYMENT:
- * - Vercel serverless functions are stateless. Each cold start begins with a
- *   fresh in-memory store. Agent registrations, spending records, and daily
- *   spend counters are NOT durable across invocations.
- * - The built-in demo agent (demo-research-agent-001) is always available
- *   because it is seeded at module load time, but any agents registered via
- *   POST /api/agents/register will be lost when the function instance recycles.
- * - For production use, replace the in-memory Maps in server/store.ts with a
- *   persistent store (e.g. Vercel KV, PlanetScale, Upstash Redis). This is a
- *   known prototype limitation; no paid service has been silently added.
- * - Rate-limiting buckets are also per-instance and do not share state across
- *   concurrent function instances.
+ * - Bounty spending checks are pre-flight only, not enforceable financial
+ *   safeguards. Intents are not yet atomically reserved or reconciled to receipts.
+ * - Rate-limit buckets are per-instance and do not share state across function
+ *   instances.
  */
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import ABI from '../src/lib/humanlayer-abi.json' with { type: 'json' }
-import { arcTestnet } from 'viem/chains'
-import { createPublicClient, http, type PublicClient } from 'viem'
+import { arcMainnet, arcTestnet, getArcChain } from '../src/lib/arc-chain'
+import { ARC_TESTNET_HUMANLAYER_ADDRESS } from '../src/lib/contract-addresses'
+import { createPublicClient, getAddress, http, isAddress, type Address, type PublicClient } from 'viem'
+import { getUsdc } from '../src/onchain-facts'
 
 
 
@@ -140,15 +135,6 @@ export interface DailySpend {
   dateUtc: string   // YYYY-MM-DD
   spentRaw: string  // 6-decimal running total
 }
-
-
-/**
- * In-memory store for agent registrations, spending tracking, and
- * worker discovery data. Survives for the lifetime of the server process.
- *
- * In production this would be a database. For this demo the store is
- * seeded with a Research Agent and representative worker profiles.
- */
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -666,15 +652,39 @@ export function extractBearerToken(authHeader: string | undefined): string | nul
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-// arc-studio-allow-onchain-literal: deployment constant — Arc Testnet v3 contract
-const CONTRACT_ADDRESS = (
-  process.env.VITE_HUMANLAYER_ADDRESS ?? '0x07b37d3101b41c0d2eeb983dd8fdc302cc7ce5e2'
-) as `0x${string}`
+const ARC_CHAIN_ID = Number(process.env.VITE_ARC_CHAIN_ID ?? arcTestnet.id)
+const ARC_CHAIN = getArcChain(ARC_CHAIN_ID)
+const ARC_USDC = getUsdc(ARC_CHAIN_ID)
+if (!ARC_USDC) throw new Error(`USDC is not configured for Arc chain ${ARC_CHAIN_ID}.`)
+const contractAddressRaw = ARC_CHAIN_ID === arcMainnet.id
+  ? process.env.VITE_HUMANLAYER_MAINNET_ADDRESS
+  : process.env.VITE_HUMANLAYER_TESTNET_ADDRESS
+    ?? process.env.VITE_HUMANLAYER_ADDRESS
+    ?? ARC_TESTNET_HUMANLAYER_ADDRESS
+const isTestnetContractOnMainnet =
+  ARC_CHAIN_ID === arcMainnet.id &&
+  contractAddressRaw?.toLowerCase() === ARC_TESTNET_HUMANLAYER_ADDRESS.toLowerCase()
+const CONTRACT_ADDRESS: Address | undefined =
+  contractAddressRaw && isAddress(contractAddressRaw) && !isTestnetContractOnMainnet
+    ? getAddress(contractAddressRaw)
+    : undefined
+const CONTRACT_CONFIGURATION_ERROR = !contractAddressRaw
+  ? 'No HumanLayer contract is configured for the selected Arc network.'
+  : isTestnetContractOnMainnet
+    ? 'The Arc Testnet HumanLayer contract address cannot be used for Arc Mainnet.'
+  : !CONTRACT_ADDRESS
+    ? 'The configured HumanLayer contract address is invalid.'
+    : undefined
 
-const rpcUrl = arcTestnet.rpcUrls.default.http[0]
+function getContractAddress(): Address {
+  if (!CONTRACT_ADDRESS) throw new Error(CONTRACT_CONFIGURATION_ERROR)
+  return CONTRACT_ADDRESS
+}
+
+const rpcUrl = ARC_CHAIN.rpcUrls.default.http[0]
 
 const rpcClient: PublicClient = createPublicClient({
-  chain: arcTestnet,
+  chain: ARC_CHAIN,
   transport: http(rpcUrl),
 })
 
@@ -713,6 +723,8 @@ function json(res: VercelResponse, status: number, body: unknown) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Expose-Headers', 'X-HumanLayer-Chain-ID')
+  res.setHeader('X-HumanLayer-Chain-ID', String(ARC_CHAIN_ID))
   res.status(status).json(body)
 }
 
@@ -729,30 +741,30 @@ function getQuery(url: string): URLSearchParams {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getBountyRaw(id: number): Promise<any> {
-  return rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getBounty', args: [BigInt(id)] })
+  return rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getBounty', args: [BigInt(id)] })
 }
 
 async function getBountyCount(): Promise<number> {
-  const count = await rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getBountyCount' })
+  const count = await rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getBountyCount' })
   return Number(count)
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getSubmissionRaw(id: bigint): Promise<any> {
-  return rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getSubmission', args: [id] })
+  return rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getSubmission', args: [id] })
 }
 
 async function getBountySubmissionIds(bountyId: bigint): Promise<bigint[]> {
-  const ids = await rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getBountySubmissions', args: [bountyId] })
+  const ids = await rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getBountySubmissions', args: [bountyId] })
   return ids as bigint[]
 }
 
 async function getWorkerReputation(address: `0x${string}`): Promise<bigint> {
-  return rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'workerReputation', args: [address] }) as Promise<bigint>
+  return rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'workerReputation', args: [address] }) as Promise<bigint>
 }
 
 async function getWorkerSubmissionIds(address: `0x${string}`): Promise<bigint[]> {
-  const ids = await rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getWorkerSubmissions', args: [address] })
+  const ids = await rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getWorkerSubmissions', args: [address] })
   return ids as bigint[]
 }
 
@@ -878,9 +890,9 @@ async function handleListBounties(req: VercelRequest, res: VercelResponse) {
     const results = formatted.slice(0, limit)
     return json(res, 200, {
       total: results.length,
-      contract_address: CONTRACT_ADDRESS,
-      chain: 'Arc Testnet',
-      chain_id: arcTestnet.id,
+      contract_address: getContractAddress(),
+      chain: ARC_CHAIN.name,
+      chain_id: ARC_CHAIN_ID,
       bounties: results,
     })
   } catch (err) {
@@ -903,6 +915,7 @@ async function handleGetBounty(req: VercelRequest, res: VercelResponse, id: stri
 }
 
 async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse) {
+  const contractAddress = getContractAddress()
   const token = extractBearerToken(req.headers.authorization as string | undefined)
   if (!token) return json(res, 401, { error: 'Missing Authorization header. Use: Authorization: Bearer <api_key>' })
   const agent = await getAgentByApiKey(token)
@@ -940,7 +953,7 @@ async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse)
     },
     onchain_steps: [
       {
-        step: 1, action: 'createBounty', contract: CONTRACT_ADDRESS,
+        step: 1, action: 'createBounty', contract: contractAddress,
         function: 'createBounty(uint8,bytes32,uint8,uint256,uint256)',
         args: {
           category: VALID_CATEGORIES_ONCHAIN.indexOf(category),
@@ -953,13 +966,13 @@ async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse)
       },
       {
         step: 2, action: 'approveUSDC',
-        contract: '0x3600000000000000000000000000000000000000',
+        contract: ARC_USDC.address,
         function: 'approve(address,uint256)',
-        args: { spender: CONTRACT_ADDRESS, amount: totalRaw.toString() },
+        args: { spender: contractAddress, amount: totalRaw.toString() },
         note: 'Approve HumanLayer contract to transfer USDC escrow.',
       },
       {
-        step: 3, action: 'fundBounty', contract: CONTRACT_ADDRESS,
+        step: 3, action: 'fundBounty', contract: contractAddress,
         function: 'fundBounty(uint256)',
         args: { bountyId: '<bountyId from step 1 event>' },
         note: 'Transfers totalRaw USDC into escrow. Bounty becomes OPEN.',
@@ -992,6 +1005,7 @@ async function handleGetSubmissions(req: VercelRequest, res: VercelResponse, bou
 }
 
 async function handleSubmitWork(req: VercelRequest, res: VercelResponse, bountyId: string) {
+  const contractAddress = getContractAddress()
   const body = req.body as Record<string, unknown> ?? {}
   const idNum = parseInt(bountyId)
   if (isNaN(idNum) || idNum < 1) return json(res, 400, { error: 'Invalid bounty ID.' })
@@ -1006,7 +1020,7 @@ async function handleSubmitWork(req: VercelRequest, res: VercelResponse, bountyI
     _note: 'PRE-FLIGHT VALIDATION. Submit the transaction below from the worker wallet.',
     validated: true,
     onchain_step: {
-      action: 'submitWork', contract: CONTRACT_ADDRESS,
+      action: 'submitWork', contract: contractAddress,
       function: 'submitWork(uint256,bytes32)',
       args: { bountyId: idNum, answerRef: answer_ref },
       signer: 'Must be signed by worker_address wallet.',
@@ -1127,6 +1141,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       res.setHeader('Access-Control-Allow-Origin', '*')
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      res.setHeader('Access-Control-Expose-Headers', 'X-HumanLayer-Chain-ID')
+      res.setHeader('X-HumanLayer-Chain-ID', String(ARC_CHAIN_ID))
       return res.status(204).end()
     }
   
@@ -1156,8 +1172,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         status: 'ok',
         service: 'HumanLayer Agent API',
         version: '1.0.0',
-        chain: 'Arc Testnet',
-        contract_address: CONTRACT_ADDRESS,
+        chain: ARC_CHAIN.name,
+        chain_id: ARC_CHAIN_ID,
+        contract_address: CONTRACT_ADDRESS ?? null,
+        contract_configured: Boolean(CONTRACT_ADDRESS),
+        contract_configuration_error: CONTRACT_CONFIGURATION_ERROR,
         storage: storageStatus,
         note: storageStatus === 'connected'
           ? 'Agent registrations are stored in Supabase Postgres.'
@@ -1167,6 +1186,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
     if (parts[0] !== 'api') {
       return json(res, 404, { error: 'Not found. All endpoints are under /api/*' })
+    }
+
+    const needsContract =
+      parts[1] === 'bounties' ||
+      parts[1] === 'workers' ||
+      (parts[1] === 'agents' && (parts[3] === 'reputation' || parts[3] === 'activity'))
+    if (needsContract && !CONTRACT_ADDRESS) {
+      return json(res, 503, {
+        error: CONTRACT_CONFIGURATION_ERROR,
+        chain: ARC_CHAIN.name,
+        chain_id: ARC_CHAIN_ID,
+      })
     }
   
     const needsPersistentStorage =

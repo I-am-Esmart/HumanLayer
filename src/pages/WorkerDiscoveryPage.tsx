@@ -4,6 +4,7 @@ import { api, type WorkerRecord } from '../lib/api'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
+import { explorerAddrUrl } from '../lib/bounty-meta'
 
 const CATEGORIES = ['', 'Science', 'Software', 'Research', 'ImageData', 'Language', 'BiologyMedicine']
 
@@ -170,7 +171,7 @@ function WorkerDetailPanel({ worker, onClose }: { worker: WorkerRecord; onClose:
 
       <div className="flex gap-3 pt-4 border-t border-[var(--border)]">
         <a
-          href={`https://explorer.testnet.arc.io/address/${worker.address}`}
+          href={explorerAddrUrl(worker.address)}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-1.5 text-xs text-[var(--accent)] hover:underline"

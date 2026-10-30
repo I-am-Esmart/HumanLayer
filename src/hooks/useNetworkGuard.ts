@@ -1,18 +1,23 @@
 import { useAccount, useSwitchChain } from 'wagmi'
-import { arcTestnet } from 'viem/chains'
-
-const TARGET_CHAIN_ID = arcTestnet.id
+import { ARC_CHAIN_ID, ARC_CHAIN_NAME } from '../lib/contract'
 
 export function useNetworkGuard() {
   const { chainId, isConnected } = useAccount()
   const { switchChain, isPending: isSwitching } = useSwitchChain()
 
-  const isCorrectChain = isConnected && chainId === TARGET_CHAIN_ID
-  const needsSwitch = isConnected && chainId !== TARGET_CHAIN_ID
+  const isCorrectChain = isConnected && chainId === ARC_CHAIN_ID
+  const needsSwitch = isConnected && chainId !== ARC_CHAIN_ID
 
   function switchToArc() {
-    switchChain({ chainId: TARGET_CHAIN_ID })
+    switchChain({ chainId: ARC_CHAIN_ID })
   }
 
-  return { isCorrectChain, needsSwitch, isSwitching, switchToArc, targetChainId: TARGET_CHAIN_ID }
+  return {
+    isCorrectChain,
+    needsSwitch,
+    isSwitching,
+    switchToArc,
+    targetChainId: ARC_CHAIN_ID,
+    targetChainName: ARC_CHAIN_NAME,
+  }
 }

@@ -3,7 +3,7 @@ import { Button } from './ui/Button'
 import { useNetworkGuard } from '../hooks/useNetworkGuard'
 
 export function NetworkGuard({ children }: { children: React.ReactNode }) {
-  const { needsSwitch, isSwitching, switchToArc } = useNetworkGuard()
+  const { needsSwitch, isSwitching, switchToArc, targetChainName } = useNetworkGuard()
 
   if (needsSwitch) {
     return (
@@ -13,10 +13,10 @@ export function NetworkGuard({ children }: { children: React.ReactNode }) {
         </div>
         <h2 className="display text-xl font-bold text-[var(--ink)] mb-2">Wrong Network</h2>
         <p className="text-[var(--muted)] text-sm mb-6 text-pretty">
-          HumanLayer runs on Arc Testnet. Switch your wallet to continue.
+          HumanLayer runs on {targetChainName}. Switch your wallet to continue.
         </p>
         <Button onClick={switchToArc} loading={isSwitching} size="lg">
-          Switch to Arc Testnet
+          Switch to {targetChainName}
         </Button>
       </div>
     )

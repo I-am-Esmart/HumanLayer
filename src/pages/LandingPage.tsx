@@ -3,6 +3,7 @@ import { ConnectKitButton } from 'connectkit'
 import type { Page } from '../App'
 import { DEMO_BOUNTIES, CATEGORY_META } from '../lib/demo-data'
 import { formatUSDC, STATUS_STYLES } from '../lib/utils'
+import { ARC_CHAIN_NAME } from '../lib/contract'
 import { Badge } from '../components/ui/Badge'
 
 interface LandingPageProps {
@@ -44,7 +45,7 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
           {/* Pill label */}
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--surface)] border border-[var(--border)] text-xs text-[var(--muted)] mb-8">
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--success)] animate-pulse" />
-            Live on Arc Testnet · USDC settlement
+            Live on {ARC_CHAIN_NAME} · USDC settlement
           </div>
 
           {/* Core value proposition — one clear sentence */}

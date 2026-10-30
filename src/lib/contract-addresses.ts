@@ -1,0 +1,2 @@
+export const ARC_TESTNET_HUMANLAYER_ADDRESS =
+  '0x07b37d3101b41c0d2eeb983dd8fdc302cc7ce5e2'

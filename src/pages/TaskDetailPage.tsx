@@ -30,7 +30,7 @@ import {
   storeSubmissionAnswer,
   getSubmissionAnswer,
 } from '../lib/bounty-meta'
-import { HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
+import { ARC_CHAIN_ID, ARC_CHAIN_NAME, ARC_RPC_URL, HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
 import { parseContractError, isUserRejection } from '../lib/errors'
 import {
   useBountySubmissionIds,
@@ -90,6 +90,7 @@ export function TaskDetailPage({ bounty, onNavigate }: TaskDetailPageProps) {
     try {
       const answerRef = answerToRef(answer, address)
       const hash = await writeContractAsync({
+        chainId: ARC_CHAIN_ID,
         address: HUMANLAYER_ADDRESS,
         abi: HUMANLAYER_ABI,
         functionName: 'submitWork',
@@ -119,6 +120,7 @@ export function TaskDetailPage({ bounty, onNavigate }: TaskDetailPageProps) {
   async function handleApprove(sub: OnchainSubmission) {
     try {
       const hash = await writeContractAsync({
+        chainId: ARC_CHAIN_ID,
         address: HUMANLAYER_ADDRESS,
         abi: HUMANLAYER_ABI,
         functionName: 'approveSubmission',
@@ -137,6 +139,7 @@ export function TaskDetailPage({ bounty, onNavigate }: TaskDetailPageProps) {
   async function handleReject(sub: OnchainSubmission) {
     try {
       const hash = await writeContractAsync({
+        chainId: ARC_CHAIN_ID,
         address: HUMANLAYER_ADDRESS,
         abi: HUMANLAYER_ABI,
         functionName: 'rejectSubmission',
@@ -153,7 +156,7 @@ export function TaskDetailPage({ bounty, onNavigate }: TaskDetailPageProps) {
   }
 
   async function waitForReceipt(hash: `0x${string}`) {
-    const rpc = 'https://rpc.testnet.arc.io'
+    const rpc = ARC_RPC_URL
     for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 2000))
       const res = await fetch(rpc, {
@@ -373,7 +376,7 @@ export function TaskDetailPage({ bounty, onNavigate }: TaskDetailPageProps) {
             <p className="text-xs text-[var(--subtle)] mb-1">Settlement network</p>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-sm font-medium text-[var(--ink)]">Arc Testnet</span>
+              <span className="text-sm font-medium text-[var(--ink)]">{ARC_CHAIN_NAME}</span>
             </div>
             <p className="text-xs text-[var(--subtle)] mt-1">USDC · Instant settlement</p>
           </div>

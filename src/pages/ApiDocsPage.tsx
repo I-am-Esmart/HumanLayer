@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Copy, CheckCheck, Terminal, Cpu, Shield, Zap, Search, BookOpen } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
+import { ARC_CHAIN_ID, ARC_CHAIN_NAME } from '../lib/contract'
 
 type Section = 'overview' | 'auth' | 'bounties' | 'agents' | 'workers' | 'security' | 'formats'
 
@@ -195,7 +196,8 @@ const ENDPOINTS: Record<string, Endpoint[]> = {
       responseExample: JSON.stringify({
         total: 3,
         contract_address: '0x4ec5...',
-        chain: 'Arc Testnet',
+        chain: ARC_CHAIN_NAME,
+        chain_id: ARC_CHAIN_ID,
         bounties: [{
           id: 'bounty-1',
           onchain_id: 1,
@@ -211,7 +213,7 @@ const ENDPOINTS: Record<string, Endpoint[]> = {
       }, null, 2),
       notes: [
         'Query params: status (OPEN|IN_PROGRESS|COMPLETED|DISPUTED|CANCELLED), category, creator (wallet address), limit (max 200)',
-        'Data is read live from the Arc Testnet contract on every request',
+        `Data is read live from the ${ARC_CHAIN_NAME} contract on every request`,
       ],
     },
     {
@@ -427,7 +429,7 @@ export function ApiDocsPage() {
               {[
                 { icon: Terminal, title: 'Machine-readable', body: 'All endpoints return clean JSON optimised for programmatic consumption, not human display.' },
                 { icon: Shield, title: 'Keyless by default', body: 'Most read endpoints require no auth. Only bounty creation needs a Bearer API key.' },
-                { icon: Zap, title: 'Live onchain data', body: 'Bounty and submission endpoints read directly from the Arc Testnet smart contract on every call.' },
+                { icon: Zap, title: 'Live onchain data', body: `Bounty and submission endpoints read directly from the ${ARC_CHAIN_NAME} smart contract on every call.` },
               ].map(({ icon: Icon, title, body }) => (
                 <div key={title} className="glass rounded-xl p-4">
                   <Icon className="w-5 h-5 text-[var(--accent)] mb-3" />

@@ -1,11 +1,10 @@
 import { useMemo } from 'react'
 import { Activity, CheckCircle2, Plus, Coins, XCircle, Loader2 } from 'lucide-react'
 import { usePublicClient } from 'wagmi'
-import { arcTestnet } from 'viem/chains'
 import { useQuery } from '@tanstack/react-query'
 import { formatRelativeTime } from '../lib/utils'
-import { formatUsdcRaw } from '../lib/bounty-meta'
-import { HUMANLAYER_ADDRESS } from '../lib/contract'
+import { explorerTxUrl, formatUsdcRaw } from '../lib/bounty-meta'
+import { ARC_RPC_URL, HUMANLAYER_ADDRESS } from '../lib/contract'
 import { useBountyCount } from '../hooks/useHumanLayer'
 
 type EventType = 'BountyCreated' | 'BountyFunded' | 'WorkSubmitted' | 'SubmissionApproved' | 'SubmissionRejected' | 'SubmissionDisputed' | 'RewardClaimed' | 'DisputeResolved' | 'BountyCancelled'
@@ -54,7 +53,7 @@ function topicHash(sig: string): `0x${string}` {
 }
 
 async function fetchEvents(): Promise<ActivityEvent[]> {
-  const rpc = 'https://rpc.testnet.arc.io'
+  const rpc = ARC_RPC_URL
 
   // Get current block
   const blockRes = await fetch(rpc, {
@@ -249,7 +248,7 @@ export function ActivityPage() {
                         </span>
                       )}
                       <a
-                        href={`https://explorer.testnet.arc.io/tx/${event.txHash}`}
+                        href={explorerTxUrl(event.txHash as `0x${string}`)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mono text-xs text-[var(--accent)] hover:underline"

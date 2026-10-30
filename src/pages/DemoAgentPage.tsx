@@ -12,6 +12,7 @@ import { Bot, Coins, CheckCircle2, Clock, ArrowRight, Loader2, AlertTriangle, Za
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import type { AgentBountyFormat } from '../lib/api'
+import { ARC_CHAIN_NAME } from '../lib/contract'
 import type { Page } from '../App'
 
 interface DemoAgentPageProps {
@@ -137,7 +138,7 @@ export function DemoAgentPage({ onNavigate }: DemoAgentPageProps) {
     setStep({ id: 'discovering' })
     addLog('Agent: scanning HumanLayer marketplace for open Research tasks…')
     await sleep(900)
-    addLog(`Agent: found ${DEMO_OPEN_BOUNTIES.length} open Research bounties on Arc Testnet.`)
+    addLog(`Agent: found ${DEMO_OPEN_BOUNTIES.length} open Research bounties on ${ARC_CHAIN_NAME}.`)
     setStep({ id: 'discovered', bounties: DEMO_OPEN_BOUNTIES })
     await sleep(800)
 
@@ -152,7 +153,7 @@ export function DemoAgentPage({ onNavigate }: DemoAgentPageProps) {
     addLog('Agent: remaining budget $482.00 ≥ $3.00 total escrow — OK')
     addLog('Agent: spending check PASSED.')
     addLog('Agent: returned 3-step onchain transaction sequence (createBounty → approveUSDC → fundBounty).')
-    addLog('DEMO NOTE: in a real deployment the agent wallet would sign and submit these transactions now.')
+    addLog(`DEMO NOTE: in a real deployment the agent wallet would sign and submit these transactions on ${ARC_CHAIN_NAME}.`)
     await sleep(700)
 
     setStep({ id: 'created', bounty: DEMO_BOUNTY })
@@ -180,7 +181,7 @@ export function DemoAgentPage({ onNavigate }: DemoAgentPageProps) {
     setStep({ id: 'approving', bounty: DEMO_BOUNTY })
     addLog('Agent: calling approveSubmission(submissionId) on the smart contract…')
     await sleep(800)
-    addLog('DEMO NOTE: in a real deployment this would submit a signed transaction to Arc Testnet.')
+    addLog(`DEMO NOTE: in a real deployment this would submit a signed transaction to ${ARC_CHAIN_NAME}.`)
     addLog('Agent: submission approved. Contract releases 1.50 USDC reward to worker.')
     addLog('Agent: platform fee (2%) = $0.03 USDC accrued. Worker receives $1.47 USDC.')
 
@@ -337,7 +338,7 @@ Authorization: Bearer <api_key>
 
             {step.id === 'discovered' && (
               <div className="space-y-2">
-                <p className="text-xs text-[var(--subtle)] mb-2">Open Research bounties found on Arc Testnet:</p>
+                <p className="text-xs text-[var(--subtle)] mb-2">Open Research bounties found on {ARC_CHAIN_NAME}:</p>
                 {step.bounties.slice(0, 3).map((b) => (
                   <div key={b.id} className="flex items-center gap-3 px-3 py-2 bg-[var(--surface-muted)] rounded-lg text-xs">
                     <span className="font-medium text-[var(--ink)] flex-1 truncate">{b.title}</span>
@@ -401,7 +402,7 @@ Authorization: Bearer <api_key>
                     <div className="flex justify-between"><span className="text-[var(--subtle)]">Gross reward</span><span className="font-semibold text-[var(--ink)]">$1.50 USDC</span></div>
                     <div className="flex justify-between"><span className="text-[var(--subtle)]">Platform fee (2%)</span><span className="text-[var(--muted)]">−$0.03 USDC</span></div>
                     <div className="flex justify-between border-t border-[var(--border)] pt-1.5"><span className="font-semibold text-[var(--ink)]">Worker receives</span><span className="font-bold text-emerald-400">$1.47 USDC</span></div>
-                    <div className="flex justify-between"><span className="text-[var(--subtle)]">Settlement</span><span className="text-[var(--muted)]">Arc Testnet · instant finality</span></div>
+                    <div className="flex justify-between"><span className="text-[var(--subtle)]">Settlement</span><span className="text-[var(--muted)]">{ARC_CHAIN_NAME} · instant finality</span></div>
                   </div>
                 )}
               </div>

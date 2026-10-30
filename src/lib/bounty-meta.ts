@@ -12,6 +12,8 @@
 import type { TaskCategory, TaskType, DifficultyLevel } from '../types'
 import { DEMO_BOUNTIES } from './demo-data'
 import { toHex, keccak256, stringToBytes } from 'viem'
+import { buildAddressExplorerUrl, buildTxExplorerUrl } from '../onchain-facts'
+import { ARC_CHAIN_ID } from './contract'
 
 export interface BountyMeta {
   title: string
@@ -157,11 +159,11 @@ export function formatUsdcRaw(raw: bigint): string {
 
 /** Build explorer tx link */
 export function explorerTxUrl(hash: `0x${string}`): string {
-  return `https://explorer.testnet.arc.io/tx/${hash}`
+  return buildTxExplorerUrl(ARC_CHAIN_ID, hash)
 }
 
 export function explorerAddrUrl(addr: string): string {
-  return `https://explorer.testnet.arc.io/address/${addr}`
+  return buildAddressExplorerUrl(ARC_CHAIN_ID, addr)
 }
 
 /** Format a short tx hash for display */

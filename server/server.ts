@@ -13,8 +13,10 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'http'
-import { createPublicClient, http, type PublicClient } from 'viem'
-import { arcTestnet } from 'viem/chains'
+import { createPublicClient, getAddress, http, isAddress, type Address, type PublicClient } from 'viem'
+import { arcMainnet, arcTestnet, getArcChain } from '../src/lib/arc-chain'
+import { ARC_TESTNET_HUMANLAYER_ADDRESS } from '../src/lib/contract-addresses'
+import { getUsdc } from '../src/onchain-facts'
 import {
   getAgentById,
   getAgentByApiKey,
@@ -37,27 +39,39 @@ import type { AgentBountyFormat, AgentSubmissionFormat } from './types'
 
 // ─── RPC client ───────────────────────────────────────────────────────────────
 
+const ARC_CHAIN_ID = Number(process.env.VITE_ARC_CHAIN_ID ?? arcTestnet.id)
+const ARC_CHAIN = getArcChain(ARC_CHAIN_ID)
+const ARC_USDC = getUsdc(ARC_CHAIN_ID)
+if (!ARC_USDC) throw new Error(`USDC is not configured for Arc chain ${ARC_CHAIN_ID}.`)
+
 const rpcUrl = (() => {
   const base = process.env.RPC_PROXY_BASE_URL
   const token = process.env.RPC_PROXY_TOKEN
   const chains = (process.env.RPC_PROXY_CHAINS || '').split(',').map((s) => s.trim())
-  if (base && token && chains.includes('Arc_Testnet')) {
+  if (ARC_CHAIN_ID === arcTestnet.id && base && token && chains.includes('Arc_Testnet')) {
     return `${base}/api/rpc/Arc_Testnet?_rpc_token=${token}`
   }
-  // Fallback: public Arc Testnet RPC (rate limits unknown)
-  return arcTestnet.rpcUrls.default.http[0]
+  return ARC_CHAIN.rpcUrls.default.http[0]
 })()
 
-const rpcClient: PublicClient = createPublicClient({ chain: arcTestnet, transport: http(rpcUrl) })
+const rpcClient: PublicClient = createPublicClient({ chain: ARC_CHAIN, transport: http(rpcUrl) })
 
 // ─── Contract ABI (minimal — only what the API needs) ────────────────────────
 
 import contractArtifact from '../contracts/out/HumanLayer.sol/HumanLayer.json' with { type: 'json' }
 
-// arc-studio-allow-onchain-literal: contract address read from env or hardcoded as deployment constant
-const CONTRACT_ADDRESS = (
-  process.env.VITE_HUMANLAYER_ADDRESS || '0x07b37d3101b41c0d2eeb983dd8fdc302cc7ce5e2'
-) as `0x${string}`
+const contractAddressRaw = ARC_CHAIN_ID === arcMainnet.id
+  ? process.env.VITE_HUMANLAYER_MAINNET_ADDRESS
+  : process.env.VITE_HUMANLAYER_TESTNET_ADDRESS
+    ?? process.env.VITE_HUMANLAYER_ADDRESS
+    ?? ARC_TESTNET_HUMANLAYER_ADDRESS
+const isTestnetContractOnMainnet =
+  ARC_CHAIN_ID === arcMainnet.id &&
+  contractAddressRaw?.toLowerCase() === ARC_TESTNET_HUMANLAYER_ADDRESS.toLowerCase()
+if (!contractAddressRaw || !isAddress(contractAddressRaw) || isTestnetContractOnMainnet) {
+  throw new Error(`A valid HumanLayer contract address must be configured for ${ARC_CHAIN.name}.`)
+}
+const CONTRACT_ADDRESS: Address = getAddress(contractAddressRaw)
 
 const ABI = contractArtifact.abi
 
@@ -197,6 +211,8 @@ function json(res: ServerResponse, status: number, body: unknown) {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Expose-Headers': 'X-HumanLayer-Chain-ID',
+    'X-HumanLayer-Chain-ID': String(ARC_CHAIN_ID),
   })
   res.end(payload)
 }
@@ -343,8 +359,8 @@ async function handleListBounties(req: IncomingMessage, res: ServerResponse) {
     return json(res, 200, {
       total: results.length,
       contract_address: CONTRACT_ADDRESS,
-      chain: 'Arc Testnet',
-      chain_id: arcTestnet.id,
+      chain: ARC_CHAIN.name,
+      chain_id: ARC_CHAIN_ID,
       bounties: results,
     })
   } catch (err) {
@@ -436,7 +452,7 @@ async function handleCreateBountyIntent(req: IncomingMessage, res: ServerRespons
       {
         step: 2,
         action: 'approveUSDC',
-        contract: '0x3600000000000000000000000000000000000000',
+        contract: ARC_USDC.address,
         function: 'approve(address,uint256)',
         args: { spender: CONTRACT_ADDRESS, amount: totalRaw.toString() },
         note: 'Approve the HumanLayer contract to transfer USDC escrow.',
@@ -649,6 +665,8 @@ async function router(req: IncomingMessage, res: ServerResponse) {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Expose-Headers': 'X-HumanLayer-Chain-ID',
+      'X-HumanLayer-Chain-ID': String(ARC_CHAIN_ID),
     })
     return res.end()
   }
@@ -755,6 +773,6 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`HumanLayer Agent API listening on http://localhost:${PORT}`)
-  console.log(`  Contract: ${CONTRACT_ADDRESS} (Arc Testnet)`)
+  console.log(`  Contract: ${CONTRACT_ADDRESS} (${ARC_CHAIN.name})`)
   console.log(`  RPC: ${rpcUrl.replace(/\?.*/, '?[token]')}`)
 })

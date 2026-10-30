@@ -23,6 +23,7 @@ import {
   BOUNTY_STATUS_MAP,
 } from '../hooks/useHumanLayer'
 import { getBountyMeta } from '../lib/bounty-meta'
+import { ARC_CHAIN_NAME } from '../lib/contract'
 import type { Bounty } from '../types'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -114,7 +115,7 @@ function AgentDashboardInner({ address, onNavigate }: { address: `0x${string}`; 
     return (
       <div className="max-w-5xl mx-auto px-4 py-16 flex flex-col items-center gap-4">
         <Loader2 className="w-8 h-8 text-[var(--accent)] animate-spin" />
-        <p className="text-sm text-[var(--muted)]">Loading your bounties from Arc Testnet…</p>
+        <p className="text-sm text-[var(--muted)]">Loading your bounties from {ARC_CHAIN_NAME}…</p>
       </div>
     )
   }
