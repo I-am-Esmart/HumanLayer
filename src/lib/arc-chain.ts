@@ -1,5 +1,5 @@
 import { defineChain } from 'viem'
-import { requireChain } from '../onchain-facts'
+import { requireChain } from '../onchain-facts.ts'
 
 export const ARC_TESTNET_CHAIN_ID = 5042002
 export const ARC_MAINNET_CHAIN_ID = 5042

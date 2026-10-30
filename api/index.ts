@@ -24,10 +24,10 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import ABI from '../src/lib/humanlayer-abi.json' with { type: 'json' }
-import { arcMainnet, arcTestnet, getArcChain } from '../src/lib/arc-chain'
-import { ARC_TESTNET_HUMANLAYER_ADDRESS } from '../src/lib/contract-addresses'
+import { arcMainnet, arcTestnet, getArcChain } from '../src/lib/arc-chain.ts'
+import { ARC_TESTNET_HUMANLAYER_ADDRESS } from '../src/lib/contract-addresses.ts'
 import { createPublicClient, decodeEventLog, getAddress, http, isAddress, keccak256, toBytes, type Address, type PublicClient } from 'viem'
-import { getUsdc } from '../src/onchain-facts'
+import { getUsdc } from '../src/onchain-facts.ts'
 
 
 
