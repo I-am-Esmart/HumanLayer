@@ -1,10 +1,37 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const api = readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8')
-const abi = JSON.parse(readFileSync(new URL('../src/lib/humanlayer-abi.json', import.meta.url), 'utf8'))
+type AbiFunction = {
+  type: 'function'
+  name: string
+  inputs: { type: string }[]
+}
 
-const createBounty = abi.find((item) => item.type === 'function' && item.name === 'createBounty')
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value)
+}
+
+function isAbiFunction(value: unknown): value is AbiFunction {
+  return (
+    isRecord(value) &&
+    value.type === 'function' &&
+    typeof value.name === 'string' &&
+    isUnknownArray(value.inputs) &&
+    value.inputs.every((input: unknown) => isRecord(input) && typeof input.type === 'string')
+  )
+}
+
+const api = readFileSync(new URL('../api/index.ts', import.meta.url), 'utf8')
+const abi: unknown = JSON.parse(readFileSync(new URL('../src/lib/humanlayer-abi.json', import.meta.url), 'utf8'))
+if (!isUnknownArray(abi)) throw new Error('ABI must be an array')
+
+const createBounty = abi.find(
+  (item): item is AbiFunction => isAbiFunction(item) && item.name === 'createBounty',
+)
 assert.ok(createBounty, 'ABI must define createBounty')
 
 const signature = `createBounty(${createBounty.inputs.map((input) => input.type).join(',')})`
