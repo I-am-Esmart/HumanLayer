@@ -2,9 +2,9 @@ name: HumanLayer checks
 
 on:
   pull_request:
-    branches: [main, persistent-storage]
+    branches: [main, persistent-storage, "fix/**", "feat/**"]
   push:
-    branches: [main, persistent-storage, "fix/**"]
+    branches: [main, persistent-storage, "fix/**", "feat/**"]
 
 permissions:
   contents: read
