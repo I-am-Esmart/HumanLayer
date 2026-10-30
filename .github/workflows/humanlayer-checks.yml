@@ -22,6 +22,7 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run test:api-contract-intent
+      - run: bun run test:mainnet-deploy-config
       - run: bun run check
 
   contracts:
