@@ -2,6 +2,7 @@
  * Parse onchain errors into user-friendly messages.
  * Never expose raw viem/contract error strings to users.
  */
+import { ARC_CHAIN_NAME } from './contract'
 
 function errToString(err: unknown): string {
   if (err instanceof Error) return err.message
@@ -56,7 +57,7 @@ export function parseContractError(err: unknown): string {
 
   // Wrong chain
   if (msg.includes('chain mismatch') || msg.includes('wrong network')) {
-    return 'Please switch your wallet to Arc Testnet and try again.'
+    return `Please switch your wallet to ${ARC_CHAIN_NAME} and try again.`
   }
 
   // RPC / network

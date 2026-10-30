@@ -1,6 +1,7 @@
 -- HumanLayer persistent Agent API storage for Supabase Postgres.
 -- Run this once in Supabase Dashboard -> SQL Editor.
 -- The API uses SUPABASE_SERVICE_ROLE_KEY server-side only.
+-- For API spend reservations, also apply supabase/migrations/20261030_agent_spend_reservations.sql.
 
 create table if not exists public.humanlayer_agents (
   agent_id text primary key,

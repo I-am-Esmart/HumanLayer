@@ -98,6 +98,16 @@
         "name": "pendingApprovedReward",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "feeBpsSnapshot",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "feeRecipientSnapshot",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -305,6 +315,16 @@
             "name": "pendingApprovedReward",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "feeBpsSnapshot",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "feeRecipientSnapshot",
+            "type": "address",
+            "internalType": "address"
           }
         ]
       }

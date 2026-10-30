@@ -1,4 +1,6 @@
 import fs from 'fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   initiateDeveloperControlledWalletsClient,
@@ -99,7 +101,7 @@ function explorerUrlFor(address: string): string {
   return ACTIVE_CHAIN.explorer ? `${ACTIVE_CHAIN.explorer}/address/${address}` : address;
 }
 
-const WORK_DIR = '/home/user/app';
+const WORK_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CONTRACTS_ROOT_DIR = `${WORK_DIR}/contracts`;
 const CONTRACT_SOURCES_DIR = CONTRACTS_ROOT_DIR;
 const FOUNDRY_OUT_DIR = `${CONTRACTS_ROOT_DIR}/out`;
@@ -1197,7 +1199,7 @@ async function runPrivateKeyDeploy(options: CliOptions, forkPredicted?: string):
   const deployerKey = coerceString(process.env.DEPLOYER_PRIVATE_KEY);
   if (!deployerKey) {
     throw new Error(
-      'DEPLOYER_PRIVATE_KEY must be set in /home/user/app/.env for a --signer private-key live deploy.',
+      `DEPLOYER_PRIVATE_KEY must be set in ${path.join(WORK_DIR, '.env')} for a --signer private-key live deploy.`,
     );
   }
 

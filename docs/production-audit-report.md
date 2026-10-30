@@ -1,7 +1,7 @@
 # HumanLayer — Production Readiness Audit Report
 
 **Date:** October 8, 2026  
-**Contract version:** v3 — `0x07b37d3101b41c0d2eeb983dd8fdc302cc7ce5e2` (Arc Testnet)  
+**Contract version:** v3 — `0x07b37d3101b41c0d2eeb983dd8fdc302cc7ce5e2` (Arc Testnet); this report predates the current Mainnet candidate changes.
 **Auditors:** solidity-auditor (max severity), functional-auditor (max severity)  
 **Tests:** 34 Foundry tests — all pass (`contracts/test/HumanLayer.t.sol`)  
 
@@ -44,8 +44,8 @@
 ### M-2: No timelock on fee changes
 **Finding:** Owner can change `platformFeeBps` immediately with full effect on pending claims.  
 **Current safeguard:** Fee is capped at 10% (`feeBps > 1000` reverts). Fee changes emit an event.  
-**Decision:** Not adding a timelock at this stage — this is a testnet deploy. For mainnet, a 48-hour timelock or per-bounty fee snapshot should be added.  
-**Status:** ACCEPTED for testnet — required before mainnet.
+**Resolution in the current Mainnet candidate:** Each bounty snapshots both `platformFeeBps` and `feeRecipient` at creation. Later owner changes apply only to new bounties, so pending work cannot have its economics changed. The current testnet v3 contract is unchanged; the snapshot requires a new deployment.
+**Status:** FIXED in source; pending new deployment and verification.
 
 ### M-3: `uint8 acceptedCount` theoretical overflow
 **Finding:** `acceptedCount` is `uint8` (max 255). `requiredWorkers` is also `uint8` (max 100 enforced). With the C-1 fix, `acceptedCount` is now bounded by `requiredWorkers` (max 100), so overflow is impossible.  
@@ -128,9 +128,9 @@ All values match the Arc Testnet official documentation. The native/ERC-20 dual-
 ## 8. What Must Be Fixed Before Handling Real Money (Mainnet Checklist)
 
 ### Smart Contract
-- [ ] Add a timelock (≥48h) on `setPlatformFee` and `setFeeRecipient` — or snapshot fee at bounty creation time
+- [x] Snapshot fee and fee recipient at bounty creation time in the Mainnet candidate; deploy as a new contract
 - [ ] Consider upgradeability strategy (proxy pattern) or commit to immutable with version migration
-- [ ] Get an independent third-party audit from a recognized firm
+- [ ] Get an independent third-party audit from a recognized firm (not completed by this code change)
 - [ ] Verify contract source on the mainnet explorer
 - [ ] Test with USDC amounts at edge cases (1 wei, max uint256, very small fees)
 

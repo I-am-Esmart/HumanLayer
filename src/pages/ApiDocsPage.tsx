@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Copy, CheckCheck, Terminal, Cpu, Shield, Zap, Search, BookOpen } from 'lucide-react'
 import { Badge } from '../components/ui/Badge'
+import { ARC_CHAIN_ID, ARC_CHAIN_NAME } from '../lib/contract'
 
 type Section = 'overview' | 'auth' | 'bounties' | 'agents' | 'workers' | 'security' | 'formats'
 
@@ -195,7 +196,8 @@ const ENDPOINTS: Record<string, Endpoint[]> = {
       responseExample: JSON.stringify({
         total: 3,
         contract_address: '0x4ec5...',
-        chain: 'Arc Testnet',
+        chain: ARC_CHAIN_NAME,
+        chain_id: ARC_CHAIN_ID,
         bounties: [{
           id: 'bounty-1',
           onchain_id: 1,
@@ -211,7 +213,7 @@ const ENDPOINTS: Record<string, Endpoint[]> = {
       }, null, 2),
       notes: [
         'Query params: status (OPEN|IN_PROGRESS|COMPLETED|DISPUTED|CANCELLED), category, creator (wallet address), limit (max 200)',
-        'Data is read live from the Arc Testnet contract on every request',
+        `Data is read live from the ${ARC_CHAIN_NAME} contract on every request`,
       ],
     },
     {
@@ -233,7 +235,7 @@ const ENDPOINTS: Record<string, Endpoint[]> = {
       method: 'POST',
       path: '/api/bounties',
       auth: true,
-      description: 'Pre-flight validation for creating a bounty. Checks spending limits and returns the exact onchain transactions your agent wallet must submit. No transaction is sent by the API.',
+      description: 'Atomically reserves this API request against the agent-configured limits, then returns onchain steps for the owner wallet to submit. No transaction is sent by the API.',
       requestExample: JSON.stringify({
         title: 'Verify Climate Study Findings',
         description: 'Cross-check findings from this paper against original sources.',
@@ -244,18 +246,22 @@ const ENDPOINTS: Record<string, Endpoint[]> = {
         days_until_deadline: 7,
       }, null, 2),
       responseExample: JSON.stringify({
-        _note: 'PRE-FLIGHT VALIDATION. No transaction submitted.',
+        _note: 'RESERVED TRANSACTION INTENT. No transaction submitted.',
         validated: true,
+        reservation: { id: 'uuid', status: 'reserved', expires_at: '2026-10-30T12:00:00.000Z', replayed: false },
         spending_check: { within_per_task_limit: true, total_escrow_usdc: '6.000000' },
         onchain_steps: [
-          { step: 1, action: 'createBounty', function: 'createBounty(uint8,bytes32,uint256,uint256,uint64)' },
+          { step: 1, action: 'createBounty', function: 'createBounty(uint8,bytes32,uint8,uint256,uint256)' },
           { step: 2, action: 'approveUSDC', function: 'approve(address,uint256)' },
           { step: 3, action: 'fundBounty', function: 'fundBounty(uint256)' },
         ],
       }, null, 2),
       notes: [
         'Requires Authorization: Bearer <api_key> header',
-        'Validates category permission, per-task limit, daily limit, and total budget',
+        'Requires Idempotency-Key: <unique-key>; reuse the same key when retrying this request',
+        'Atomically checks daily and total limits against active reservations and confirmed funding',
+        'After funding, call POST /api/bounties/reservations/:id/confirm with tx_hash and bounty_id',
+        'API limits do not prevent the owner wallet from bypassing the API and submitting directly onchain',
         'The API never signs transactions — your agent wallet must submit the returned steps',
       ],
     },
@@ -427,7 +433,7 @@ export function ApiDocsPage() {
               {[
                 { icon: Terminal, title: 'Machine-readable', body: 'All endpoints return clean JSON optimised for programmatic consumption, not human display.' },
                 { icon: Shield, title: 'Keyless by default', body: 'Most read endpoints require no auth. Only bounty creation needs a Bearer API key.' },
-                { icon: Zap, title: 'Live onchain data', body: 'Bounty and submission endpoints read directly from the Arc Testnet smart contract on every call.' },
+                { icon: Zap, title: 'Live onchain data', body: `Bounty and submission endpoints read directly from the ${ARC_CHAIN_NAME} smart contract on every call.` },
               ].map(({ icon: Icon, title, body }) => (
                 <div key={title} className="glass rounded-xl p-4">
                   <Icon className="w-5 h-5 text-[var(--accent)] mb-3" />

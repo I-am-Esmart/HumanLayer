@@ -25,7 +25,7 @@ import {
   CATEGORY_FROM_INDEX,
   getSubmissionAnswer,
 } from '../lib/bounty-meta'
-import { HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
+import { ARC_CHAIN_ID, ARC_CHAIN_NAME, ARC_RPC_URL, HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
 import { parseContractError, isUserRejection } from '../lib/errors'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -77,6 +77,7 @@ function WorkerDashboardInner({ address, onNavigate }: { address: `0x${string}`;
   async function handleClaim(sub: OnchainSubmission) {
     try {
       const hash = await writeContractAsync({
+        chainId: ARC_CHAIN_ID,
         address: HUMANLAYER_ADDRESS,
         abi: HUMANLAYER_ABI,
         functionName: 'claimReward',
@@ -104,7 +105,7 @@ function WorkerDashboardInner({ address, onNavigate }: { address: `0x${string}`;
     return (
       <div className="max-w-5xl mx-auto px-4 py-16 flex flex-col items-center gap-4">
         <Loader2 className="w-8 h-8 text-[var(--accent)] animate-spin" />
-        <p className="text-sm text-[var(--muted)]">Loading your submissions from Arc Testnet…</p>
+        <p className="text-sm text-[var(--muted)]">Loading your submissions from {ARC_CHAIN_NAME}…</p>
       </div>
     )
   }
@@ -219,7 +220,7 @@ function SubmissionRow({ sub, onClaim }: { sub: OnchainSubmission; onClaim: () =
 }
 
 async function waitForReceipt(hash: `0x${string}`) {
-  const rpc = 'https://rpc.testnet.arc.io'
+  const rpc = ARC_RPC_URL
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 2000))
     const res = await fetch(rpc, {

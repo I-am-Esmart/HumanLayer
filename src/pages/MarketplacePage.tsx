@@ -9,6 +9,7 @@ import {
   CATEGORY_FROM_INDEX,
 } from '../lib/bounty-meta'
 import { useBountyCount, useAllBounties, BOUNTY_STATUS_MAP, type OnchainBounty } from '../hooks/useHumanLayer'
+import { ARC_CHAIN_NAME } from '../lib/contract'
 import type { Page } from '../App'
 
 interface MarketplacePageProps {
@@ -102,7 +103,7 @@ export function MarketplacePage({ onNavigate }: MarketplacePageProps) {
           <div>
             <p className="text-sm font-semibold text-amber-400 mb-0.5">Demo mode — no live bounties yet</p>
             <p className="text-xs text-[var(--muted)]">
-              No bounties have been posted to Arc Testnet yet. Connect a wallet and post the first real bounty, or explore the interface with demo data below.
+              No bounties have been posted to {ARC_CHAIN_NAME} yet. Connect a wallet and post the first real bounty, or explore the interface with demo data below.
             </p>
           </div>
         </div>
@@ -113,7 +114,7 @@ export function MarketplacePage({ onNavigate }: MarketplacePageProps) {
         <div>
           <h1 className="display text-3xl font-bold text-[var(--ink)] mb-1">Task Marketplace</h1>
           <p className="text-[var(--muted)] text-sm">
-            {isLoading ? 'Loading live onchain bounties…' : `${bounties.length} bounties on Arc Testnet`}
+            {isLoading ? 'Loading live onchain bounties…' : `${bounties.length} bounties on ${ARC_CHAIN_NAME}`}
           </p>
         </div>
         <button
@@ -169,7 +170,7 @@ export function MarketplacePage({ onNavigate }: MarketplacePageProps) {
       {isLoading ? (
         <div className="flex flex-col items-center py-24 gap-4">
           <Loader2 className="w-8 h-8 text-[var(--accent)] animate-spin" />
-          <p className="text-sm text-[var(--muted)]">Reading bounties from Arc Testnet…</p>
+          <p className="text-sm text-[var(--muted)]">Reading bounties from {ARC_CHAIN_NAME}…</p>
         </div>
       ) : displayBounties.length === 0 ? (
         <div className="text-center py-24">

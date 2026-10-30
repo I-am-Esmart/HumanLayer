@@ -11,28 +11,23 @@
  * - All financial operations must be executed onchain by the caller's wallet.
  * - Agent API keys are SHA-256-hashed before storage; the plaintext is
  *   returned once on registration and never stored.
- * - The in-memory store does NOT persist across serverless invocations.
- *   See LIMITATIONS below.
+ * - Agent profiles and spending records are persisted in Supabase Postgres.
+ * - The API only plans transactions; it never signs or submits them.
  *
  * LIMITATIONS OF THIS DEPLOYMENT:
- * - Vercel serverless functions are stateless. Each cold start begins with a
- *   fresh in-memory store. Agent registrations, spending records, and daily
- *   spend counters are NOT durable across invocations.
- * - The built-in demo agent (demo-research-agent-001) is always available
- *   because it is seeded at module load time, but any agents registered via
- *   POST /api/agents/register will be lost when the function instance recycles.
- * - For production use, replace the in-memory Maps in server/store.ts with a
- *   persistent store (e.g. Vercel KV, PlanetScale, Upstash Redis). This is a
- *   known prototype limitation; no paid service has been silently added.
- * - Rate-limiting buckets are also per-instance and do not share state across
- *   concurrent function instances.
+ * - Bounty spending checks are pre-flight only, not enforceable financial
+ *   safeguards. Intents are not yet atomically reserved or reconciled to receipts.
+ * - Rate-limit buckets are per-instance and do not share state across function
+ *   instances.
  */
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import ABI from '../src/lib/humanlayer-abi.json' with { type: 'json' }
-import { arcTestnet } from 'viem/chains'
-import { createPublicClient, http, type PublicClient } from 'viem'
+import { arcMainnet, arcTestnet, getArcChain } from '../src/lib/arc-chain.ts'
+import { ARC_TESTNET_HUMANLAYER_ADDRESS } from '../src/lib/contract-addresses.ts'
+import { createPublicClient, decodeEventLog, getAddress, http, isAddress, keccak256, toBytes, type Address, type PublicClient } from 'viem'
+import { getUsdc } from '../src/onchain-facts.ts'
 
 
 
@@ -140,15 +135,6 @@ export interface DailySpend {
   dateUtc: string   // YYYY-MM-DD
   spentRaw: string  // 6-decimal running total
 }
-
-
-/**
- * In-memory store for agent registrations, spending tracking, and
- * worker discovery data. Survives for the lifetime of the server process.
- *
- * In production this would be a database. For this demo the store is
- * seeded with a Research Agent and representative worker profiles.
- */
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -410,6 +396,97 @@ export async function recordDailySpend(agentId: string, spentRaw: bigint): Promi
   })
 }
 
+type SpendReservationRow = {
+  reservation_id: string
+  agent_id: string
+  idempotency_key: string
+  request_hash: string
+  amount_raw: string | number
+  daily_date_utc: string
+  chain_id: number
+  contract_address: string
+  intent_payload: Record<string, unknown>
+  status: 'reserved' | 'confirmed' | 'released' | 'expired'
+  expires_at: string
+  tx_hash: string | null
+  bounty_id: string | number | null
+}
+
+async function reserveAgentSpend(input: {
+  agentId: string
+  idempotencyKey: string
+  requestHash: string
+  amountRaw: bigint
+  perTaskRaw: bigint
+  chainId: number
+  contractAddress: Address
+  intentPayload: Record<string, unknown>
+  expiresAt: string
+}) {
+  await ensurePersistentStore()
+  const result = await supabaseRequest<Record<string, unknown>>(
+    'rpc/reserve_humanlayer_spend',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        p_agent_id: input.agentId,
+        p_idempotency_key: input.idempotencyKey,
+        p_request_hash: input.requestHash,
+        p_amount_raw: input.amountRaw.toString(),
+        p_per_task_raw: input.perTaskRaw.toString(),
+        p_chain_id: input.chainId,
+        p_contract_address: input.contractAddress,
+        p_intent_payload: input.intentPayload,
+        p_expires_at: input.expiresAt,
+      }),
+    },
+  )
+  // PostgREST returns a scalar jsonb RPC result as a JSON value, not a row set.
+  const value = result
+  if (value?.ok === false) return value
+  return value
+}
+
+async function confirmAgentSpend(input: {
+  agentId: string
+  reservationId: string
+  txHash: string
+  bountyId: bigint
+  amountRaw: bigint
+  blockTimestamp: string
+}) {
+  await ensurePersistentStore()
+  return supabaseRequest<Record<string, unknown>>('rpc/confirm_humanlayer_spend', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_agent_id: input.agentId,
+      p_reservation_id: input.reservationId,
+      p_tx_hash: input.txHash,
+      p_bounty_id: input.bountyId.toString(),
+      p_amount_raw: input.amountRaw.toString(),
+      p_block_timestamp: input.blockTimestamp,
+    }),
+  })
+}
+
+async function releaseAgentSpend(input: {
+  agentId: string
+  reservationId: string
+  txHash: string
+  blockTimestamp: string
+}) {
+  await ensurePersistentStore()
+  return supabaseRequest<Record<string, unknown>>('rpc/release_humanlayer_spend', {
+    method: 'POST',
+    body: JSON.stringify({
+      p_agent_id: input.agentId,
+      p_reservation_id: input.reservationId,
+      p_tx_hash: input.txHash,
+      p_block_timestamp: input.blockTimestamp,
+    }),
+  })
+}
+
 // ─── Worker discovery (seeded demo data) ─────────────────────────────────────
 // arc-studio-allow-onchain-literal: demo fixture addresses, not real wallets
 
@@ -666,15 +743,39 @@ export function extractBearerToken(authHeader: string | undefined): string | nul
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-// arc-studio-allow-onchain-literal: deployment constant — Arc Testnet v3 contract
-const CONTRACT_ADDRESS = (
-  process.env.VITE_HUMANLAYER_ADDRESS ?? '0x07b37d3101b41c0d2eeb983dd8fdc302cc7ce5e2'
-) as `0x${string}`
+const ARC_CHAIN_ID = Number(process.env.VITE_ARC_CHAIN_ID ?? arcTestnet.id)
+const ARC_CHAIN = getArcChain(ARC_CHAIN_ID)
+const ARC_USDC = getUsdc(ARC_CHAIN_ID)
+if (!ARC_USDC) throw new Error(`USDC is not configured for Arc chain ${ARC_CHAIN_ID}.`)
+const contractAddressRaw = ARC_CHAIN_ID === arcMainnet.id
+  ? process.env.VITE_HUMANLAYER_MAINNET_ADDRESS
+  : process.env.VITE_HUMANLAYER_TESTNET_ADDRESS
+    ?? process.env.VITE_HUMANLAYER_ADDRESS
+    ?? ARC_TESTNET_HUMANLAYER_ADDRESS
+const isTestnetContractOnMainnet =
+  ARC_CHAIN_ID === arcMainnet.id &&
+  contractAddressRaw?.toLowerCase() === ARC_TESTNET_HUMANLAYER_ADDRESS.toLowerCase()
+const CONTRACT_ADDRESS: Address | undefined =
+  contractAddressRaw && isAddress(contractAddressRaw) && !isTestnetContractOnMainnet
+    ? getAddress(contractAddressRaw)
+    : undefined
+const CONTRACT_CONFIGURATION_ERROR = !contractAddressRaw
+  ? 'No HumanLayer contract is configured for the selected Arc network.'
+  : isTestnetContractOnMainnet
+    ? 'The Arc Testnet HumanLayer contract address cannot be used for Arc Mainnet.'
+  : !CONTRACT_ADDRESS
+    ? 'The configured HumanLayer contract address is invalid.'
+    : undefined
 
-const rpcUrl = arcTestnet.rpcUrls.default.http[0]
+function getContractAddress(): Address {
+  if (!CONTRACT_ADDRESS) throw new Error(CONTRACT_CONFIGURATION_ERROR)
+  return CONTRACT_ADDRESS
+}
+
+const rpcUrl = ARC_CHAIN.rpcUrls.default.http[0]
 
 const rpcClient: PublicClient = createPublicClient({
-  chain: arcTestnet,
+  chain: ARC_CHAIN,
   transport: http(rpcUrl),
 })
 
@@ -711,8 +812,10 @@ function checkRateLimit(ip: string, isWrite: boolean): boolean {
 
 function json(res: VercelResponse, status: number, body: unknown) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Access-Control-Expose-Headers', 'X-HumanLayer-Chain-ID')
+  res.setHeader('X-HumanLayer-Chain-ID', String(ARC_CHAIN_ID))
   res.status(status).json(body)
 }
 
@@ -729,30 +832,30 @@ function getQuery(url: string): URLSearchParams {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getBountyRaw(id: number): Promise<any> {
-  return rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getBounty', args: [BigInt(id)] })
+  return rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getBounty', args: [BigInt(id)] })
 }
 
 async function getBountyCount(): Promise<number> {
-  const count = await rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getBountyCount' })
+  const count = await rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getBountyCount' })
   return Number(count)
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getSubmissionRaw(id: bigint): Promise<any> {
-  return rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getSubmission', args: [id] })
+  return rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getSubmission', args: [id] })
 }
 
 async function getBountySubmissionIds(bountyId: bigint): Promise<bigint[]> {
-  const ids = await rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getBountySubmissions', args: [bountyId] })
+  const ids = await rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getBountySubmissions', args: [bountyId] })
   return ids as bigint[]
 }
 
 async function getWorkerReputation(address: `0x${string}`): Promise<bigint> {
-  return rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'workerReputation', args: [address] }) as Promise<bigint>
+  return rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'workerReputation', args: [address] }) as Promise<bigint>
 }
 
 async function getWorkerSubmissionIds(address: `0x${string}`): Promise<bigint[]> {
-  const ids = await rpcClient.readContract({ address: CONTRACT_ADDRESS, abi: ABI, functionName: 'getWorkerSubmissions', args: [address] })
+  const ids = await rpcClient.readContract({ address: getContractAddress(), abi: ABI, functionName: 'getWorkerSubmissions', args: [address] })
   return ids as bigint[]
 }
 
@@ -878,9 +981,9 @@ async function handleListBounties(req: VercelRequest, res: VercelResponse) {
     const results = formatted.slice(0, limit)
     return json(res, 200, {
       total: results.length,
-      contract_address: CONTRACT_ADDRESS,
-      chain: 'Arc Testnet',
-      chain_id: arcTestnet.id,
+      contract_address: getContractAddress(),
+      chain: ARC_CHAIN.name,
+      chain_id: ARC_CHAIN_ID,
       bounties: results,
     })
   } catch (err) {
@@ -903,10 +1006,16 @@ async function handleGetBounty(req: VercelRequest, res: VercelResponse, id: stri
 }
 
 async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse) {
+  const contractAddress = getContractAddress()
   const token = extractBearerToken(req.headers.authorization as string | undefined)
   if (!token) return json(res, 401, { error: 'Missing Authorization header. Use: Authorization: Bearer <api_key>' })
   const agent = await getAgentByApiKey(token)
   if (!agent) return json(res, 401, { error: 'Invalid API key.' })
+  const idempotencyHeader = req.headers['idempotency-key']
+  const idempotencyKey = Array.isArray(idempotencyHeader) ? idempotencyHeader[0] : idempotencyHeader
+  if (!agent.isDemo && (typeof idempotencyKey !== 'string' || idempotencyKey.trim().length < 1 || idempotencyKey.length > 128)) {
+    return json(res, 400, { error: 'Provide an Idempotency-Key header between 1 and 128 characters.' })
+  }
 
   const body = req.body as Record<string, unknown> ?? {}
   const validation = validateBountyPayload(body)
@@ -920,46 +1029,122 @@ async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse)
   const workers = parseInt(String(body.required_workers))
   const days = parseInt(String(body.days_until_deadline))
 
-  const spendCheck = await checkSpendingLimits(agent, rewardRaw, workers)
-  if (!spendCheck.ok) return json(res, 403, { error: spendCheck.error, error_code: spendCheck.errorCode })
-
-  const deadlineUnix = Math.floor(Date.now() / 1000) + days * 86400
   const totalRaw = rewardRaw * BigInt(workers)
+  const title = String(body.title)
+  const taskType = String(body.task_type)
+  const description = String(body.description ?? '')
+  const requestHash = createHash('sha256').update(JSON.stringify({
+    agentId: agent.agentId,
+    title,
+    description,
+    category,
+    taskType,
+    rewardRaw: rewardRaw.toString(),
+    workers,
+    days,
+  })).digest('hex')
+  const requestFacts = JSON.stringify({ title, description, category, taskType, rewardRaw: rewardRaw.toString(), workers, days })
+  const taskRef = keccak256(toBytes(requestFacts))
+  const deadlineUnix = Math.floor(Date.now() / 1000) + days * 86400
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+  const intentPayload = {
+    title,
+    description,
+    category,
+    taskType,
+    rewardRaw: rewardRaw.toString(),
+    workers,
+    deadlineUnix,
+    taskRef,
+  }
+  const reservationResult = agent.isDemo
+    ? {
+        ok: true,
+        replayed: false,
+        reservation: {
+          reservation_id: 'demo',
+          status: 'demo',
+          expires_at: expiresAt,
+          amount_raw: totalRaw.toString(),
+          intent_payload: intentPayload,
+        },
+      }
+    : await reserveAgentSpend({
+    agentId: agent.agentId,
+    idempotencyKey: (idempotencyKey as string).trim(),
+    requestHash,
+    amountRaw: totalRaw,
+    perTaskRaw: rewardRaw,
+    chainId: ARC_CHAIN_ID,
+    contractAddress,
+    intentPayload,
+    expiresAt,
+  })
+  if (reservationResult.ok === false) {
+    const code = String(reservationResult.code ?? 'SPENDING_LIMIT_EXCEEDED')
+    if (code === 'IDEMPOTENCY_KEY_REUSED') {
+      return json(res, 409, { error: 'This Idempotency-Key was already used for a different request.', error_code: code })
+    }
+    if (code === 'INVALID_RESERVATION' || code === 'AGENT_NOT_FOUND') {
+      return json(res, 500, { error: 'Could not create the spend reservation.', error_code: code })
+    }
+    const error = code === 'EXCEEDS_PER_TASK_LIMIT'
+      ? `Reward per worker exceeds your per-task limit (${formatUsdcHuman(BigInt(agent.spendingLimits.perTaskMax))} USDC).`
+      : code === 'EXCEEDS_DAILY_LIMIT'
+        ? `This bounty would exceed your daily spending limit (${formatUsdcHuman(BigInt(agent.spendingLimits.dailyLimit))} USDC/day).`
+        : `This bounty would exceed your total budget (${formatUsdcHuman(BigInt(agent.spendingLimits.totalBudget))} USDC).`
+    return json(res, 403, { error, error_code: code })
+  }
+  const reservation = reservationResult.reservation as SpendReservationRow
+  const intent = reservation.intent_payload
+  const resolvedRewardRaw = BigInt(String(intent.rewardRaw))
+  const resolvedWorkers = Number(intent.workers)
+  const resolvedTotalRaw = BigInt(String(reservation.amount_raw))
+  const resolvedDeadlineUnix = Number(intent.deadlineUnix)
+  const resolvedTaskRef = String(intent.taskRef)
 
   return json(res, 200, {
-    _note: 'PRE-FLIGHT VALIDATION. No onchain transaction has been submitted. Your agent wallet must submit the transactions below in order.',
+    _note: agent.isDemo
+      ? 'DEMO ONLY. No spend was reserved and no transaction was submitted.'
+      : 'RESERVED TRANSACTION INTENT. No onchain transaction has been submitted. Your agent wallet must submit the transactions below before the reservation expires. API limits cover requests made through this API; the owner wallet can still submit transactions directly onchain.',
     agent_id: agent.agentId,
     is_demo: agent.isDemo,
     validated: true,
+    reservation: {
+      id: reservation.reservation_id,
+      status: reservation.status,
+      expires_at: reservation.expires_at,
+      replayed: Boolean(reservationResult.replayed),
+    },
     spending_check: {
-      reward_per_worker_usdc: (Number(rewardRaw) / 1e6).toFixed(6),
-      total_escrow_usdc: (Number(totalRaw) / 1e6).toFixed(6),
+      reward_per_worker_usdc: (Number(resolvedRewardRaw) / 1e6).toFixed(6),
+      total_escrow_usdc: (Number(resolvedTotalRaw) / 1e6).toFixed(6),
       within_per_task_limit: true,
       within_daily_limit: true,
       within_total_budget: true,
     },
     onchain_steps: [
       {
-        step: 1, action: 'createBounty', contract: CONTRACT_ADDRESS,
+        step: 1, action: 'createBounty', contract: contractAddress,
         function: 'createBounty(uint8,bytes32,uint8,uint256,uint256)',
         args: {
-          category: VALID_CATEGORIES_ONCHAIN.indexOf(category),
-          taskRef: '0x<keccak256_of_task_description>',
-          requiredWorkers: workers,
-          rewardPerWorker: rewardRaw.toString(),
-          deadline: deadlineUnix,
+          category: VALID_CATEGORIES_ONCHAIN.indexOf(String(intent.category)),
+          taskRef: resolvedTaskRef,
+          requiredWorkers: resolvedWorkers,
+          rewardPerWorker: resolvedRewardRaw.toString(),
+          deadline: resolvedDeadlineUnix,
         },
         note: 'Emits BountyCreated. Parse bountyId from event logs.',
       },
       {
         step: 2, action: 'approveUSDC',
-        contract: '0x3600000000000000000000000000000000000000',
+        contract: ARC_USDC!.address,
         function: 'approve(address,uint256)',
-        args: { spender: CONTRACT_ADDRESS, amount: totalRaw.toString() },
+        args: { spender: contractAddress, amount: resolvedTotalRaw.toString() },
         note: 'Approve HumanLayer contract to transfer USDC escrow.',
       },
       {
-        step: 3, action: 'fundBounty', contract: CONTRACT_ADDRESS,
+        step: 3, action: 'fundBounty', contract: contractAddress,
         function: 'fundBounty(uint256)',
         args: { bountyId: '<bountyId from step 1 event>' },
         note: 'Transfers totalRaw USDC into escrow. Bounty becomes OPEN.',
@@ -967,14 +1152,121 @@ async function handleCreateBountyIntent(req: VercelRequest, res: VercelResponse)
     ],
     bounty_preview: {
       title: body.title,
-      category,
-      task_type: body.task_type,
-      reward_per_worker_usdc: (Number(rewardRaw) / 1e6).toFixed(6),
-      required_workers: workers,
-      deadline_iso: new Date(deadlineUnix * 1000).toISOString(),
-      total_escrow_usdc: (Number(totalRaw) / 1e6).toFixed(6),
+      category: intent.category,
+      task_type: intent.taskType,
+      reward_per_worker_usdc: (Number(resolvedRewardRaw) / 1e6).toFixed(6),
+      required_workers: resolvedWorkers,
+      deadline_iso: new Date(resolvedDeadlineUnix * 1000).toISOString(),
+      total_escrow_usdc: (Number(resolvedTotalRaw) / 1e6).toFixed(6),
     },
   })
+}
+
+async function getAuthenticatedAgent(req: VercelRequest, res: VercelResponse): Promise<AgentProfile | null> {
+  const token = extractBearerToken(req.headers.authorization as string | undefined)
+  if (!token) {
+    json(res, 401, { error: 'Missing Authorization header. Use: Authorization: Bearer <api_key>' })
+    return null
+  }
+  const agent = await getAgentByApiKey(token)
+  if (!agent) {
+    json(res, 401, { error: 'Invalid API key.' })
+    return null
+  }
+  return agent
+}
+
+async function handleConfirmBountyReservation(req: VercelRequest, res: VercelResponse, reservationId: string) {
+  const agent = await getAuthenticatedAgent(req, res)
+  if (!agent) return
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reservationId)) {
+    return json(res, 400, { error: 'Invalid reservation ID.' })
+  }
+  const rows = await supabaseRequest<SpendReservationRow[]>(
+    `humanlayer_spend_reservations?select=*&reservation_id=eq.${encodeURIComponent(reservationId)}&agent_id=eq.${encodeURIComponent(agent.agentId)}&limit=1`,
+  )
+  const reservation = rows[0]
+  if (!reservation) return json(res, 404, { error: 'Spend reservation not found.' })
+  if (reservation.chain_id !== ARC_CHAIN_ID || reservation.contract_address.toLowerCase() !== getContractAddress().toLowerCase()) {
+    return json(res, 409, { error: 'Reservation targets a different chain or contract configuration.', error_code: 'RESERVATION_NETWORK_MISMATCH' })
+  }
+  const body = req.body as Record<string, unknown> ?? {}
+  const txHash = body.tx_hash
+  const bountyIdInput = body.bounty_id
+  if (typeof txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+    return json(res, 400, { error: 'tx_hash must be a 32-byte transaction hash.' })
+  }
+  if (!/^[1-9][0-9]*$/.test(String(bountyIdInput ?? ''))) {
+    return json(res, 400, { error: 'bounty_id must be a positive integer.' })
+  }
+  const bountyId = BigInt(String(bountyIdInput))
+  if (reservation.status === 'confirmed') {
+    if (reservation.tx_hash?.toLowerCase() === txHash.toLowerCase() && String(reservation.bounty_id) === bountyId.toString()) {
+      return json(res, 200, { confirmed: true, replayed: true, reservation_id: reservation.reservation_id, tx_hash: txHash, bounty_id: bountyId.toString() })
+    }
+    return json(res, 409, { error: 'Reservation was already confirmed by another transaction.', error_code: 'RESERVATION_ALREADY_CONFIRMED' })
+  }
+  if (reservation.status === 'released') return json(res, 409, { error: 'Released reservation cannot be confirmed.' })
+
+  const contractAddress = getContractAddress()
+  const receipt = await rpcClient.getTransactionReceipt({ hash: txHash as `0x${string}` })
+  if (!receipt.to || receipt.to.toLowerCase() !== contractAddress.toLowerCase() || receipt.from.toLowerCase() !== agent.ownerWallet.toLowerCase()) {
+    return json(res, 422, { error: 'Transaction sender or destination does not match this agent and contract.' })
+  }
+  const block = await rpcClient.getBlock({ blockNumber: receipt.blockNumber })
+  const blockTimestamp = new Date(Number(block.timestamp) * 1000).toISOString()
+  if (receipt.status === 'reverted') {
+    await releaseAgentSpend({ agentId: agent.agentId, reservationId, txHash, blockTimestamp })
+    return json(res, 409, { error: 'The onchain transaction reverted; its spend reservation was released.', error_code: 'TRANSACTION_REVERTED' })
+  }
+
+  let fundedEvent: { bountyId: bigint; funder: Address; amount: bigint } | undefined
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== contractAddress.toLowerCase()) continue
+    try {
+      const decoded = decodeEventLog({ abi: ABI, data: log.data, topics: log.topics })
+      if (decoded.eventName === 'BountyFunded') {
+        const args = decoded.args as unknown as { bountyId: bigint; funder: Address; amount: bigint }
+        fundedEvent = args
+      }
+    } catch {
+      // Ignore other events emitted by the HumanLayer contract.
+    }
+  }
+  if (!fundedEvent || fundedEvent.bountyId !== bountyId || fundedEvent.funder.toLowerCase() !== agent.ownerWallet.toLowerCase() || fundedEvent.amount !== BigInt(String(reservation.amount_raw))) {
+    return json(res, 422, { error: 'Receipt does not contain the expected BountyFunded event for this reservation.' })
+  }
+  const result = await confirmAgentSpend({
+    agentId: agent.agentId,
+    reservationId,
+    txHash,
+    bountyId,
+    amountRaw: fundedEvent.amount,
+    blockTimestamp,
+  })
+  return json(res, 200, { confirmed: true, reservation_id: reservationId, tx_hash: txHash, bounty_id: bountyId.toString(), amount_usdc: formatUsdcHuman(fundedEvent.amount), result })
+}
+
+async function handleReleaseBountyReservation(req: VercelRequest, res: VercelResponse, reservationId: string) {
+  const agent = await getAuthenticatedAgent(req, res)
+  if (!agent) return
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reservationId)) {
+    return json(res, 400, { error: 'Invalid reservation ID.' })
+  }
+  const body = req.body as Record<string, unknown> ?? {}
+  const txHash = body.tx_hash
+  if (typeof txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+    return json(res, 400, { error: 'tx_hash must be a 32-byte transaction hash.' })
+  }
+  const receipt = await rpcClient.getTransactionReceipt({ hash: txHash as `0x${string}` })
+  const contractAddress = getContractAddress()
+  if (receipt.status !== 'reverted' || !receipt.to || receipt.to.toLowerCase() !== contractAddress.toLowerCase() || receipt.from.toLowerCase() !== agent.ownerWallet.toLowerCase()) {
+    return json(res, 422, { error: 'Only a reverted transaction sent by this agent to the configured contract can release a reservation.' })
+  }
+  const block = await rpcClient.getBlock({ blockNumber: receipt.blockNumber })
+  const blockTimestamp = new Date(Number(block.timestamp) * 1000).toISOString()
+  const result = await releaseAgentSpend({ agentId: agent.agentId, reservationId, txHash, blockTimestamp })
+  return json(res, 200, { released: true, reservation_id: reservationId, tx_hash: txHash, result })
 }
 
 async function handleGetSubmissions(req: VercelRequest, res: VercelResponse, bountyId: string) {
@@ -992,6 +1284,7 @@ async function handleGetSubmissions(req: VercelRequest, res: VercelResponse, bou
 }
 
 async function handleSubmitWork(req: VercelRequest, res: VercelResponse, bountyId: string) {
+  const contractAddress = getContractAddress()
   const body = req.body as Record<string, unknown> ?? {}
   const idNum = parseInt(bountyId)
   if (isNaN(idNum) || idNum < 1) return json(res, 400, { error: 'Invalid bounty ID.' })
@@ -1006,7 +1299,7 @@ async function handleSubmitWork(req: VercelRequest, res: VercelResponse, bountyI
     _note: 'PRE-FLIGHT VALIDATION. Submit the transaction below from the worker wallet.',
     validated: true,
     onchain_step: {
-      action: 'submitWork', contract: CONTRACT_ADDRESS,
+      action: 'submitWork', contract: contractAddress,
       function: 'submitWork(uint256,bytes32)',
       args: { bountyId: idNum, answerRef: answer_ref },
       signer: 'Must be signed by worker_address wallet.',
@@ -1125,8 +1418,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // CORS preflight
     if (method === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key')
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      res.setHeader('Access-Control-Expose-Headers', 'X-HumanLayer-Chain-ID')
+      res.setHeader('X-HumanLayer-Chain-ID', String(ARC_CHAIN_ID))
       return res.status(204).end()
     }
   
@@ -1156,8 +1451,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         status: 'ok',
         service: 'HumanLayer Agent API',
         version: '1.0.0',
-        chain: 'Arc Testnet',
-        contract_address: CONTRACT_ADDRESS,
+        chain: ARC_CHAIN.name,
+        chain_id: ARC_CHAIN_ID,
+        contract_address: CONTRACT_ADDRESS ?? null,
+        contract_configured: Boolean(CONTRACT_ADDRESS),
+        contract_configuration_error: CONTRACT_CONFIGURATION_ERROR,
         storage: storageStatus,
         note: storageStatus === 'connected'
           ? 'Agent registrations are stored in Supabase Postgres.'
@@ -1168,11 +1466,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (parts[0] !== 'api') {
       return json(res, 404, { error: 'Not found. All endpoints are under /api/*' })
     }
+
+    const needsContract =
+      parts[1] === 'bounties' ||
+      parts[1] === 'workers' ||
+      (parts[1] === 'agents' && (parts[3] === 'reputation' || parts[3] === 'activity'))
+    if (needsContract && !CONTRACT_ADDRESS) {
+      return json(res, 503, {
+        error: CONTRACT_CONFIGURATION_ERROR,
+        chain: ARC_CHAIN.name,
+        chain_id: ARC_CHAIN_ID,
+      })
+    }
   
     const needsPersistentStorage =
       (method === 'POST' && parts[1] === 'agents' && parts[2] === 'register') ||
       (method === 'GET' && parts[1] === 'agents' && Boolean(parts[2]) && parts[2] !== 'workers') ||
-      (method === 'POST' && parts[1] === 'bounties' && !parts[2])
+      (method === 'POST' && parts[1] === 'bounties' && (!parts[2] || parts[2] === 'reservations'))
     if (needsPersistentStorage && !storageIsConfigured()) {
       return json(res, 503, {
         error: 'Persistent agent storage is not configured.',
@@ -1208,6 +1518,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // POST /api/bounties
     if (method === 'POST' && parts[1] === 'bounties' && !parts[2])
       return await handleCreateBountyIntent(req, res)
+
+    // POST /api/bounties/reservations/:id/confirm
+    if (method === 'POST' && parts[1] === 'bounties' && parts[2] === 'reservations' && parts[3] && parts[4] === 'confirm')
+      return await handleConfirmBountyReservation(req, res, parts[3])
+
+    // POST /api/bounties/reservations/:id/release (requires a failed onchain receipt)
+    if (method === 'POST' && parts[1] === 'bounties' && parts[2] === 'reservations' && parts[3] && parts[4] === 'release')
+      return await handleReleaseBountyReservation(req, res, parts[3])
   
     // GET /api/bounties/:id
     if (method === 'GET' && parts[1] === 'bounties' && parts[2] && !parts[3])
@@ -1236,6 +1554,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         'GET  /api/agents/workers',
         'GET  /api/bounties',
         'POST /api/bounties',
+        'POST /api/bounties/reservations/:id/confirm',
+        'POST /api/bounties/reservations/:id/release',
         'GET  /api/bounties/:id',
         'GET  /api/bounties/:id/submissions',
         'POST /api/bounties/:id/submit',

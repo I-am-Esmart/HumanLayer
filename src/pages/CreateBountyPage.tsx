@@ -18,7 +18,7 @@ import {
   shortHash,
   CATEGORY_INDEX,
 } from '../lib/bounty-meta'
-import { HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
+import { ARC_CHAIN_ID, ARC_CHAIN_NAME, ARC_RPC_URL, HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
 import { USDC_ADDRESS } from '../hooks/useUsdcBalance'
 import { parseContractError, isUserRejection } from '../lib/errors'
 import type { Page } from '../App'
@@ -147,6 +147,7 @@ export function CreateBountyPage({ onNavigate }: CreateBountyPageProps) {
       let createdBountyId: bigint | null = null
 
       const createTxHash = await writeContractAsync({
+        chainId: ARC_CHAIN_ID,
         address: HUMANLAYER_ADDRESS,
         abi: HUMANLAYER_ABI,
         functionName: 'createBounty',
@@ -192,6 +193,7 @@ export function CreateBountyPage({ onNavigate }: CreateBountyPageProps) {
       // ── Step 2: USDC approve ─────────────────────────────────────────────
       setTxPhase('approve-pending')
       const approveTxHash = await writeContractAsync({
+        chainId: ARC_CHAIN_ID,
         address: USDC_ADDRESS,
         abi: erc20Abi,
         functionName: 'approve',
@@ -204,6 +206,7 @@ export function CreateBountyPage({ onNavigate }: CreateBountyPageProps) {
       // ── Step 3: fundBounty ───────────────────────────────────────────────
       setTxPhase('fund-pending')
       const fundTxHash = await writeContractAsync({
+        chainId: ARC_CHAIN_ID,
         address: HUMANLAYER_ADDRESS,
         abi: HUMANLAYER_ABI,
         functionName: 'fundBounty',
@@ -232,7 +235,7 @@ export function CreateBountyPage({ onNavigate }: CreateBountyPageProps) {
 
   // Utility: wait for a tx receipt via fetch loop on Arc RPC
   async function waitForReceipt(hash: `0x${string}`): Promise<{ logs: { topics: string[] }[] }> {
-    const rpc = 'https://rpc.testnet.arc.io'
+    const rpc = ARC_RPC_URL
     for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 2000))
       const res = await fetch(rpc, {
@@ -472,7 +475,7 @@ export function CreateBountyPage({ onNavigate }: CreateBountyPageProps) {
               <div className="flex items-start gap-2 p-3 bg-[var(--accent)]/5 border border-[var(--accent)]/15 rounded-lg">
                 <Info className="w-4 h-4 text-[var(--accent)] flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-[var(--muted)] leading-relaxed">
-                  Funds are held in USDC escrow on the HumanLayer smart contract on Arc Testnet and released only when you approve a submission.
+                  Funds are held in USDC escrow on the HumanLayer smart contract on {ARC_CHAIN_NAME} and released only when you approve a submission.
                 </p>
               </div>
             </div>
@@ -550,7 +553,7 @@ const TX_PHASE_LABELS: Record<TxPhase, string> = {
 const TX_PHASE_SUBLABELS: Record<TxPhase, string> = {
   idle: '',
   'create-pending': 'Sign the createBounty transaction in your wallet.',
-  'create-confirming': 'Waiting for on-chain confirmation on Arc Testnet…',
+  'create-confirming': `Waiting for on-chain confirmation on ${ARC_CHAIN_NAME}…`,
   'approve-pending': 'Sign the USDC approval to allow the contract to receive your funds.',
   'approve-confirming': 'Waiting for USDC approval confirmation…',
   'fund-pending': 'Sign the fundBounty transaction to transfer USDC into escrow.',

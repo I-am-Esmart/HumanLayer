@@ -24,14 +24,12 @@ import {
 } from '../hooks/useHumanLayer'
 import { getBountyMeta, CATEGORY_FROM_INDEX, formatUsdcRaw } from '../lib/bounty-meta'
 import { getSubmissionAnswer } from '../lib/bounty-meta'
-import { HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
+import { ARC_CHAIN_ID, ARC_RPC_URL, HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
 import { parseContractError, isUserRejection } from '../lib/errors'
 import { Badge } from '../components/ui/Badge'
 import { NetworkGuard } from '../components/NetworkGuard'
 
 type AdminTab = 'overview' | 'submissions' | 'disputes'
-
-const PLATFORM_OWNER = '0x5b12ce46c7194ad57d143bc22847224047b1ef42'
 
 export function AdminPage() {
   const { address, isConnected } = useAccount()
@@ -61,9 +59,7 @@ function AdminPageInner({ address, tab, setTab }: {
   setTab: (t: AdminTab) => void
 }) {
   const contractOwner = useContractOwner()
-  const isOwner = contractOwner
-    ? address.toLowerCase() === contractOwner.toLowerCase()
-    : address.toLowerCase() === PLATFORM_OWNER
+  const isOwner = Boolean(contractOwner && address.toLowerCase() === contractOwner)
 
   const { data: countRaw, isLoading: countLoading } = useBountyCount()
   const count = countRaw ? Number(countRaw) : 0
@@ -87,6 +83,7 @@ function AdminPageInner({ address, tab, setTab }: {
     }
     try {
       const hash = await writeContractAsync({
+        chainId: ARC_CHAIN_ID,
         address: HUMANLAYER_ADDRESS,
         abi: HUMANLAYER_ABI,
         functionName: 'resolveDispute',
@@ -119,7 +116,7 @@ function AdminPageInner({ address, tab, setTab }: {
       {!isOwner && (
         <div className="mb-6 p-3 rounded-xl bg-amber-400/5 border border-amber-400/20 flex items-center gap-2 text-xs text-amber-300">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          Your wallet is not the contract owner. Dispute resolution buttons are disabled. Owner: {formatAddress(PLATFORM_OWNER)}.
+          Your wallet is not the contract owner. Dispute resolution buttons are disabled. Owner: {contractOwner ? formatAddress(contractOwner) : 'unavailable'}.
         </div>
       )}
 
@@ -251,7 +248,7 @@ function DisputeTab({ bounties, isOwner, onResolve }: {
 }
 
 async function waitForReceipt(hash: `0x${string}`) {
-  const rpc = 'https://rpc.testnet.arc.io'
+  const rpc = ARC_RPC_URL
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 2000))
     const res = await fetch(rpc, {

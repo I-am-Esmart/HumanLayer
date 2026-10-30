@@ -5,6 +5,14 @@ import {Test, Vm} from "forge-std/Test.sol";
 import {HumanLayer} from "../HumanLayer.sol";
 import {MockERC20} from "../test-helpers/MockERC20.sol";
 
+contract HumanLayerTestHarness is HumanLayer {
+    constructor(address usdcToken_, address initialOwner) HumanLayer(usdcToken_, initialOwner) {}
+
+    function setAcceptedCountForTest(uint256 bountyId, uint8 acceptedCount) external {
+        bounties[bountyId].acceptedCount = acceptedCount;
+    }
+}
+
 contract HumanLayerTest is Test {
     // ─── constants ────────────────────────────────────────────────────────────
     uint256 internal constant REWARD    = 100e6;  // 100 USDC per worker (6 dec)
@@ -37,7 +45,7 @@ contract HumanLayerTest is Test {
 
         // Deploy HumanLayer; owner is both the protocol owner AND initial feeRecipient
         vm.prank(owner);
-        hl = new HumanLayer(address(usdc), owner);
+        hl = new HumanLayerTestHarness(address(usdc), owner);
 
         DEADLINE = block.timestamp + 7 days;
 
@@ -374,6 +382,31 @@ contract HumanLayerTest is Test {
         assertEq(usdc.balanceOf(owner),         0,  "feeRecipient wallet unchanged (pull model)");
     }
 
+    function test_ClaimReward_UsesBountyFeeAndRecipientSnapshot() public {
+        uint256 bountyId = _createAndFund(1);
+        uint256 subId = _submitWork(alice, bountyId);
+        vm.prank(creator);
+        hl.approveSubmission(subId);
+
+        vm.prank(owner);
+        hl.setPlatformFee(500);
+        vm.prank(owner);
+        hl.setFeeRecipient(bob);
+
+        vm.prank(alice);
+        hl.claimReward(subId);
+
+        uint256 originalFee = (REWARD * FEE_BPS) / BPS_DENOM;
+        assertEq(hl.pendingFees(owner), originalFee, "existing bounty keeps original recipient and fee");
+        assertEq(hl.pendingFees(bob), 0, "recipient update applies only to future bounties");
+        assertEq(usdc.balanceOf(alice), 10_000e6 + REWARD - originalFee, "worker receives original net reward");
+
+        uint256 nextBountyId = _createBounty(1);
+        HumanLayer.Bounty memory nextBounty = hl.getBounty(nextBountyId);
+        assertEq(nextBounty.feeBpsSnapshot, 500, "new bounty snapshots updated fee");
+        assertEq(nextBounty.feeRecipientSnapshot, bob, "new bounty snapshots updated recipient");
+    }
+
     // =========================================================================
     // 20. test_WithdrawFees_Success
     //     Owner (feeRecipient) calls withdrawFees() to pull accrued fees.
@@ -557,32 +590,141 @@ contract HumanLayerTest is Test {
     }
 
     // =========================================================================
-    // 29. test_ResolveDispute_WorkerWins_BountyFull
-    //     resolveDispute reverts BountyFull when acceptedCount >= requiredWorkers.
+    // 29. test_DisputeSubmission_CompletedBounty_RevertsBountyFull
+    //     Completed bounties cannot be reopened by a rejected submission's dispute.
     // =========================================================================
-    function test_ResolveDispute_WorkerWins_BountyFull() public {
-        // requiredWorkers=1; both alice and bob submit, alice is approved (fills bounty).
-        // Bob is rejected and disputes. Resolving in bob's favour must revert BountyFull.
+    function test_DisputeSubmission_CompletedBounty_RevertsBountyFull() public {
         uint256 bountyId   = _createAndFund(1);
         uint256 subIdAlice = _submitWork(alice, bountyId);
         uint256 subIdBob   = _submitWork(bob,   bountyId);
 
-        // Approve alice → acceptedCount == requiredWorkers == 1 → Completed
-        vm.prank(creator);
-        hl.approveSubmission(subIdAlice);
-
-        // Reject bob (bounty is Completed; rejectSubmission only checks NotCreator + NotPending)
         vm.prank(creator);
         hl.rejectSubmission(subIdBob);
 
-        // Bob disputes → bounty goes Disputed
+        vm.prank(creator);
+        hl.approveSubmission(subIdAlice);
+
+        vm.prank(bob);
+        vm.expectRevert(HumanLayer.BountyFull.selector);
+        hl.disputeSubmission(subIdBob);
+
+        assertEq(
+            uint8(hl.getBounty(bountyId).status),
+            uint8(HumanLayer.BountyStatus.Completed),
+            "completed bounty stays completed"
+        );
+    }
+
+    function test_DisputeSubmission_CompletedBountyWithPendingSubmission_RevertsBountyFull() public {
+        uint256 bountyId   = _createAndFund(1);
+        uint256 subIdAlice = _submitWork(alice, bountyId);
+        uint256 subIdBob   = _submitWork(bob, bountyId);
+
+        vm.prank(creator);
+        hl.approveSubmission(subIdAlice);
+        vm.warp(DEADLINE + 1);
+
+        vm.prank(bob);
+        vm.expectRevert(HumanLayer.BountyFull.selector);
+        hl.disputeSubmission(subIdBob);
+
+        assertEq(
+            uint8(hl.getBounty(bountyId).status),
+            uint8(HumanLayer.BountyStatus.Completed),
+            "completed bounty stays completed"
+        );
+    }
+
+    function test_ApproveSubmission_WhileDisputed_Reverts() public {
+        uint256 bountyId = _createAndFund(WORKERS);
+        uint256 subIdAlice = _submitWork(alice, bountyId);
+        uint256 subIdBob = _submitWork(bob, bountyId);
+
+        vm.prank(creator);
+        hl.rejectSubmission(subIdAlice);
+        vm.prank(alice);
+        hl.disputeSubmission(subIdAlice);
+
+        vm.prank(creator);
+        vm.expectRevert(HumanLayer.InvalidBountyStatus.selector);
+        hl.approveSubmission(subIdBob);
+
+        assertEq(
+            uint8(hl.getBounty(bountyId).status),
+            uint8(HumanLayer.BountyStatus.Disputed),
+            "bounty remains disputed"
+        );
+    }
+
+    function test_DisputeSubmission_SerializesSimultaneousDisputes() public {
+        uint256 bountyId = _createAndFund(WORKERS);
+        uint256 subIdAlice = _submitWork(alice, bountyId);
+        uint256 subIdBob = _submitWork(bob, bountyId);
+
+        vm.prank(creator);
+        hl.rejectSubmission(subIdAlice);
+        vm.prank(creator);
+        hl.rejectSubmission(subIdBob);
+
+        vm.prank(alice);
+        hl.disputeSubmission(subIdAlice);
+
+        vm.prank(bob);
+        vm.expectRevert(HumanLayer.InvalidBountyStatus.selector);
+        hl.disputeSubmission(subIdBob);
+
+        vm.prank(owner);
+        hl.resolveDispute(subIdAlice, false);
+
         vm.prank(bob);
         hl.disputeSubmission(subIdBob);
 
-        // resolveDispute with workerWins=true must revert BountyFull (acceptedCount >= requiredWorkers)
+        assertEq(
+            uint8(hl.getBounty(bountyId).status),
+            uint8(HumanLayer.BountyStatus.Disputed),
+            "the second dispute is handled after the first is resolved"
+        );
+    }
+
+    function test_ResolveDispute_WorkerWinsAtCapacity_Reverts() public {
+        uint256 bountyId = _createAndFund(1);
+        uint256 subId = _submitWork(alice, bountyId);
+
+        vm.prank(creator);
+        hl.rejectSubmission(subId);
+        vm.prank(alice);
+        hl.disputeSubmission(subId);
+        HumanLayerTestHarness(address(hl)).setAcceptedCountForTest(bountyId, 1);
+
         vm.prank(owner);
         vm.expectRevert(HumanLayer.BountyFull.selector);
-        hl.resolveDispute(subIdBob, true);
+        hl.resolveDispute(subId, true);
+
+        assertEq(
+            uint8(hl.getBounty(bountyId).status),
+            uint8(HumanLayer.BountyStatus.Disputed),
+            "failed worker-win resolution leaves dispute unchanged"
+        );
+    }
+
+    function test_ResolveDispute_WorkerLossAtCapacity_StaysCompleted() public {
+        uint256 bountyId = _createAndFund(1);
+        uint256 subId = _submitWork(alice, bountyId);
+
+        vm.prank(creator);
+        hl.rejectSubmission(subId);
+        vm.prank(alice);
+        hl.disputeSubmission(subId);
+        HumanLayerTestHarness(address(hl)).setAcceptedCountForTest(bountyId, 1);
+
+        vm.prank(owner);
+        hl.resolveDispute(subId, false);
+
+        assertEq(
+            uint8(hl.getBounty(bountyId).status),
+            uint8(HumanLayer.BountyStatus.Completed),
+            "worker-loss resolution does not reopen a full bounty"
+        );
     }
 
     // =========================================================================

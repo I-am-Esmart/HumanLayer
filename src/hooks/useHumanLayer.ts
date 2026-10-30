@@ -4,11 +4,8 @@
  * Never use floating-point for onchain values.
  */
 import { useReadContract, useReadContracts } from 'wagmi'
-import { arcTestnet } from 'viem/chains'
 import type { Abi } from 'viem'
-import { HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
-
-const CHAIN_ID = arcTestnet.id
+import { ARC_CHAIN_ID, HUMANLAYER_ABI, HUMANLAYER_ADDRESS } from '../lib/contract'
 
 // ─── Onchain struct shapes returned by the contract ─────────────────────────
 
@@ -47,7 +44,7 @@ export function useBountyCount() {
     address: HUMANLAYER_ADDRESS,
     abi: HUMANLAYER_ABI,
     functionName: 'getBountyCount',
-    chainId: CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
   })
 }
 
@@ -59,7 +56,7 @@ export function useBounty(bountyId: bigint | undefined) {
     abi: HUMANLAYER_ABI,
     functionName: 'getBounty',
     args: bountyId !== undefined ? [bountyId] : undefined,
-    chainId: CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
     query: { enabled: bountyId !== undefined },
   })
   return { bounty: data as OnchainBounty | undefined, isLoading, error, refetch }
@@ -69,11 +66,11 @@ export function useBounty(bountyId: bigint | undefined) {
 
 export function useAllBounties(count: number) {
   const contracts = Array.from({ length: count }, (_, i) => ({
-    address: HUMANLAYER_ADDRESS as `0x${string}`,
+    address: HUMANLAYER_ADDRESS,
     abi: HUMANLAYER_ABI as readonly unknown[] as Abi,
     functionName: 'getBounty' as const,
     args: [BigInt(i + 1)] as [bigint],
-    chainId: CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
   }))
 
   const { data, isLoading, error, refetch } = useReadContracts({
@@ -96,7 +93,7 @@ export function useWorkerSubmissionIds(worker: `0x${string}` | undefined) {
     abi: HUMANLAYER_ABI,
     functionName: 'getWorkerSubmissions',
     args: worker ? [worker] : undefined,
-    chainId: CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
     query: { enabled: !!worker },
   })
   return { ids: (data as bigint[] | undefined) ?? [], isLoading, error, refetch }
@@ -110,7 +107,7 @@ export function useBountySubmissionIds(bountyId: bigint | undefined) {
     abi: HUMANLAYER_ABI,
     functionName: 'getBountySubmissions',
     args: bountyId !== undefined ? [bountyId] : undefined,
-    chainId: CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
     query: { enabled: bountyId !== undefined },
   })
   return { ids: (data as bigint[] | undefined) ?? [], isLoading, error, refetch }
@@ -120,11 +117,11 @@ export function useBountySubmissionIds(bountyId: bigint | undefined) {
 
 export function useSubmissions(ids: bigint[]) {
   const contracts = ids.map((id) => ({
-    address: HUMANLAYER_ADDRESS as `0x${string}`,
+    address: HUMANLAYER_ADDRESS,
     abi: HUMANLAYER_ABI as readonly unknown[] as Abi,
     functionName: 'getSubmission' as const,
     args: [id] as [bigint],
-    chainId: CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
   }))
 
   const { data, isLoading, error, refetch } = useReadContracts({
@@ -146,7 +143,7 @@ export function usePlatformFee() {
     address: HUMANLAYER_ADDRESS,
     abi: HUMANLAYER_ABI,
     functionName: 'platformFeeBps',
-    chainId: CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
   })
   return (data as bigint | undefined) ?? 200n
 }
@@ -158,7 +155,7 @@ export function useContractOwner() {
     address: HUMANLAYER_ADDRESS,
     abi: HUMANLAYER_ABI,
     functionName: 'owner',
-    chainId: CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
   })
   return (data as `0x${string}` | undefined)?.toLowerCase()
 }
@@ -171,7 +168,7 @@ export function useWorkerReputation(worker: `0x${string}` | undefined) {
     abi: HUMANLAYER_ABI,
     functionName: 'workerReputation',
     args: worker ? [worker] : undefined,
-    chainId: CHAIN_ID,
+    chainId: ARC_CHAIN_ID,
     query: { enabled: !!worker },
   })
   return { reputation: (data as bigint | undefined) ?? 0n, isLoading }
