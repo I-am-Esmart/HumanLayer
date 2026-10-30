@@ -34,7 +34,7 @@ Use the same chain ID and address values for the Vite build and the serverless A
 5. Confirm `/health` reports chain ID `5042` and `contract_configured: true`; verify wallet switching, USDC balance display, explorer links, API bounty reads, and contract reads all target Mainnet.
 6. Only after read-only verification, perform small-value create, fund, submit, approve, and claim flows with the approved wallet and funded account.
 
-No Mainnet contract address is currently configured by this change. It does not deploy contracts, change Vercel settings, or submit blockchain transactions.
+HumanLayer is deployed on Arc Mainnet at `0x3F77cBAeC7798024C1ea91755dFFeb0c516767FE` (transaction `0xcd2bf912927a461c21fe82b2f01b3c6842789d36654521054eec4cf3a8353b7a`). The deployment record is in [`contracts/deployments/arc-mainnet-HumanLayer.json`](../contracts/deployments/arc-mainnet-HumanLayer.json). Vercel Production is configured for chain ID `5042` and this contract; the production app still needs a successful deployment and post-deploy verification.
 
 ## Arc Mainnet contract deployment
 

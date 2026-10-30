@@ -14,7 +14,7 @@ HumanLayer is a USDC bounty marketplace on Arc. Buyers post verifiable research 
 |---|---|
 | Arc Studio project URL | `https://studio.arc.io/app/3889df65-98a8-4d8e-a3b6-7bfdfabfc102?thread=12a8aae7-ccc6-4a87-bd8c-f0a471efb21b` |
 | Public app | `https://agent-human-layer.vercel.app/` - must be redeployed and checked against Arc Mainnet before submission. |
-| Arc Mainnet HumanLayer contract | **Pending deployment and readback verification.** |
+| Arc Mainnet HumanLayer contract | [`0x3F77cBAeC7798024C1ea91755dFFeb0c516767FE`](https://explorer.arc.io/address/0x3F77cBAeC7798024C1ea91755dFFeb0c516767FE) — deployed and readbacks verified. |
 | Example Mainnet USDC transaction | **Pending a real, confirmed bounty flow.** Link the transaction on `https://explorer.arc.io/tx/<hash>`. |
 | Public repository | `https://github.com/I-am-Esmart/HumanLayer` |
 | Public builder profile | `https://github.com/I-am-Esmart` |
