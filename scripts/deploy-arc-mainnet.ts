@@ -20,7 +20,21 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ARTIFACT_PATH = path.join(ROOT, 'contracts/out/HumanLayer.sol/HumanLayer.json');
-const OUTPUT_PATH = path.join(ROOT, 'contracts/deployments/arc-mainnet-HumanLayer.json');
+const DEFAULT_RECORD_NAME = 'arc-mainnet-HumanLayer.json';
+
+function getRecordPath(flags: Set<string>): string {
+  const recordIndex = process.argv.indexOf('--record', 2);
+  if (recordIndex < 0) return path.join(ROOT, 'contracts/deployments', DEFAULT_RECORD_NAME);
+
+  const name = process.argv[recordIndex + 1];
+  if (!name || !/^arc-mainnet-HumanLayer(?:-[a-z0-9-]+)?\.json$/i.test(name)) {
+    throw new Error('--record must be a versioned arc-mainnet-HumanLayer JSON filename.');
+  }
+  if (!flags.has('--broadcast')) {
+    throw new Error('--record is only valid with --broadcast.');
+  }
+  return path.join(ROOT, 'contracts/deployments', name);
+}
 
 interface FoundryArtifact {
   abi: Abi;
@@ -44,11 +58,19 @@ function loadArtifact(): FoundryArtifact {
 }
 
 async function main() {
-  const flags = new Set(process.argv.slice(2));
+  const args = process.argv.slice(2);
+  const flags = new Set(args.filter((arg) => arg === '--check' || arg === '--broadcast' || arg === '--record'));
+  const recordIndex = args.indexOf('--record');
+  const allowedArgs = new Set(['--check', '--broadcast', '--record']);
+  if (recordIndex >= 0 && args[recordIndex + 1]) allowedArgs.add(args[recordIndex + 1]);
+  if (args.some((arg) => !allowedArgs.has(arg))) {
+    throw new Error('Unknown deployment argument. Optional record names must use --record <versioned-filename.json>.');
+  }
+  const outputPath = getRecordPath(flags);
   const checkOnly = flags.has('--check');
   const broadcast = flags.has('--broadcast');
-  if (checkOnly === broadcast || [...flags].some((flag) => flag !== '--check' && flag !== '--broadcast')) {
-    throw new Error('Choose exactly one mode: --check (read-only) or --broadcast (deploys and spends Mainnet gas).');
+  if (checkOnly === broadcast) {
+    throw new Error('Choose exactly one mode: --check (read-only) or --broadcast (deploys and spends Mainnet gas). Optional: --record <versioned-filename.json>.');
   }
 
   const config = readArcMainnetDeploymentConfig(process.env, { requirePrivateKey: broadcast });
@@ -78,8 +100,8 @@ async function main() {
     return;
   }
 
-  if (fs.existsSync(OUTPUT_PATH)) {
-    throw new Error(`A Mainnet deployment record already exists at ${path.relative(ROOT, OUTPUT_PATH)}. Review it before attempting another deployment.`);
+  if (fs.existsSync(outputPath)) {
+    throw new Error(`A Mainnet deployment record already exists at ${path.relative(ROOT, outputPath)}. Review it before attempting another deployment.`);
   }
 
   if (!config.privateKey) throw new Error('Private key unexpectedly missing after broadcast validation.');
@@ -142,10 +164,10 @@ async function main() {
     explorerUrl: `https://explorer.arc.io/address/${contractAddress}`,
     transactionUrl: `https://explorer.arc.io/tx/${hash}`,
   };
-  fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
-  fs.writeFileSync(OUTPUT_PATH, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' });
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' });
   console.log(JSON.stringify(record, null, 2));
-  console.log(`Deployment record saved to ${path.relative(ROOT, OUTPUT_PATH)}.`);
+  console.log(`Deployment record saved to ${path.relative(ROOT, outputPath)}.`);
 }
 
 main().catch((error: unknown) => {
