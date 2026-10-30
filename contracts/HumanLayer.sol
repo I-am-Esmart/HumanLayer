@@ -230,6 +230,7 @@ contract HumanLayer is ReentrancyGuard, Ownable {
         if (msg.sender != bounty.creator) revert NotCreator();
         if (bounty.acceptedCount >= bounty.requiredWorkers) revert BountyFull();
         if (bounty.status == BountyStatus.Cancelled) revert BountyCancelledError();
+        if (bounty.status == BountyStatus.Disputed) revert InvalidBountyStatus();
 
         submission.status = SubmissionStatus.Approved;
         bounty.acceptedCount += 1;
@@ -262,6 +263,12 @@ contract HumanLayer is ReentrancyGuard, Ownable {
 
         Bounty storage bounty = bounties[submission.bountyId];
         if (bounty.status == BountyStatus.Cancelled) revert BountyCancelledError();
+        if (bounty.status == BountyStatus.Completed || bounty.acceptedCount >= bounty.requiredWorkers) {
+            revert BountyFull();
+        }
+        if (bounty.status != BountyStatus.Open && bounty.status != BountyStatus.InProgress) {
+            revert InvalidBountyStatus();
+        }
         if (
             submission.status != SubmissionStatus.Rejected
                 && (submission.status != SubmissionStatus.Pending || block.timestamp <= bounty.deadline)
@@ -279,9 +286,9 @@ contract HumanLayer is ReentrancyGuard, Ownable {
         if (submission.status != SubmissionStatus.Disputed) revert NotDisputed();
 
         Bounty storage bounty = bounties[submission.bountyId];
+        if (bounty.status != BountyStatus.Disputed) revert InvalidBountyStatus();
 
         if (workerWins) {
-            if (bounty.status == BountyStatus.Cancelled) revert BountyCancelledError();
             if (bounty.acceptedCount >= bounty.requiredWorkers) revert BountyFull();
             submission.status = SubmissionStatus.Approved;
             bounty.acceptedCount += 1;
@@ -294,7 +301,11 @@ contract HumanLayer is ReentrancyGuard, Ownable {
             }
         } else {
             submission.status = SubmissionStatus.Rejected;
-            bounty.status = bounty.acceptedCount == 0 ? BountyStatus.Open : BountyStatus.InProgress;
+            if (bounty.acceptedCount >= bounty.requiredWorkers) {
+                bounty.status = BountyStatus.Completed;
+            } else {
+                bounty.status = bounty.acceptedCount == 0 ? BountyStatus.Open : BountyStatus.InProgress;
+            }
         }
 
         emit DisputeResolved(submissionId, submission.bountyId, workerWins);
