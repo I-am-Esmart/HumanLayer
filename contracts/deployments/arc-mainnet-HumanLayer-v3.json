@@ -1,0 +1,16 @@
+{
+  "contract": "HumanLayer",
+  "network": "Arc Mainnet",
+  "chainId": 5042,
+  "address": "0x3F77cBAeC7798024C1ea91755dFFeb0c516767FE",
+  "transactionHash": "0xcd2bf912927a461c21fe82b2f01b3c6842789d36654521054eec4cf3a8353b7a",
+  "deployerAddress": "0x82B7fbD694b3Bca2D0A2294A57cA3776d5CA5D16",
+  "ownerAddress": "0x82B7fbD694b3Bca2D0A2294A57cA3776d5CA5D16",
+  "usdcAddress": "0x3600000000000000000000000000000000000000",
+  "feeRecipient": "0x82B7fbD694b3Bca2D0A2294A57cA3776d5CA5D16",
+  "platformFeeBps": "200",
+  "blockNumber": "28664886",
+  "deployedAt": "2026-10-30T15:02:57.000Z",
+  "explorerUrl": "https://explorer.arc.io/address/0x3F77cBAeC7798024C1ea91755dFFeb0c516767FE",
+  "transactionUrl": "https://explorer.arc.io/tx/0xcd2bf912927a461c21fe82b2f01b3c6842789d36654521054eec4cf3a8353b7a"
+}

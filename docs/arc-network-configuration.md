@@ -19,7 +19,7 @@ Set the following public variables on each Vercel deployment. `VITE_` variables 
 |---|---|---|
 | `VITE_ARC_CHAIN_ID` | `5042002` | `5042` |
 | `VITE_HUMANLAYER_TESTNET_ADDRESS` | Existing Testnet deployment `0x07b37d3101b41c0d2eeb983dd8fdc302cc7ce5e2` | Optional; only used if explicitly selecting Testnet |
-| `VITE_HUMANLAYER_MAINNET_ADDRESS` | Not required | Required: address of a **newly deployed Mainnet contract** |
+| `VITE_HUMANLAYER_MAINNET_ADDRESS` | Not required | `0x43762D26A9c035d70c04D3cef58Db46227073e1E` |
 
 The legacy `VITE_HUMANLAYER_ADDRESS` remains a Testnet-only fallback for existing deployments. It is never used when `VITE_ARC_CHAIN_ID=5042`. The Vite configuration fails before building if Mainnet is selected without a valid, distinct `VITE_HUMANLAYER_MAINNET_ADDRESS`; the API reports an unconfigured contract instead of falling back to the Testnet deployment.
 
@@ -34,7 +34,7 @@ Use the same chain ID and address values for the Vite build and the serverless A
 5. Confirm `/health` reports chain ID `5042` and `contract_configured: true`; verify wallet switching, USDC balance display, explorer links, API bounty reads, and contract reads all target Mainnet.
 6. Only after read-only verification, perform small-value create, fund, submit, approve, and claim flows with the approved wallet and funded account.
 
-HumanLayer is deployed on Arc Mainnet at `0x3F77cBAeC7798024C1ea91755dFFeb0c516767FE` (transaction `0xcd2bf912927a461c21fe82b2f01b3c6842789d36654521054eec4cf3a8353b7a`). The deployment record is in [`contracts/deployments/arc-mainnet-HumanLayer.json`](../contracts/deployments/arc-mainnet-HumanLayer.json). Vercel Production is configured for chain ID `5042` and this contract; the production app still needs a successful deployment and post-deploy verification.
+The active Arc Mainnet deployment is `0x43762D26A9c035d70c04D3cef58Db46227073e1E` (transaction `0xc5b63974d9f364170aa2fc3321727b51c8fda3802e2c6044fcfcbb7b23c89c33`). It was compiled from the current Solidity source, including fee snapshots. The prior deployment `0x3F77cBAeC7798024C1ea91755dFFeb0c516767FE` is preserved in [`contracts/deployments/arc-mainnet-HumanLayer-v3.json`](../contracts/deployments/arc-mainnet-HumanLayer-v3.json); it predates the latest contract layout. The active deployment record is [`contracts/deployments/arc-mainnet-HumanLayer.json`](../contracts/deployments/arc-mainnet-HumanLayer.json).
 
 ## Arc Mainnet contract deployment
 
@@ -48,7 +48,7 @@ The Circle/Compass deployment path remains available for chains it supports. Arc
 
 ### Check, then broadcast
 
-Run from the repository root after Bun, dependencies, and Foundry are installed:
+Run from the repository root after Bun, dependencies, and Foundry are installed. Rebuild immediately before each deployment so the artifact matches the Solidity source:
 
 ```bash
 bun install --frozen-lockfile
@@ -58,7 +58,7 @@ bun run deploy:arc-mainnet --check
 bun run deploy:arc-mainnet --broadcast
 ```
 
-`--check` is read-only: it validates the configured addresses, confirms that the RPC returns chain ID `5042`, checks that USDC has deployed bytecode, and checks the compiled constructor. `--broadcast` is the only mode that submits a Mainnet transaction. It derives and prints the deployer address, verifies its gas balance, waits for one confirmation, checks deployed bytecode and reads back owner, USDC, fee recipient, and the default 200 bps platform fee. It then writes the confirmed deployment details to `contracts/deployments/arc-mainnet-HumanLayer.json`. The script refuses any RPC with the wrong chain ID and any USDC address other than Arc Mainnet USDC.
+`--check` is read-only: it validates the configured addresses, confirms that the RPC returns chain ID `5042`, checks that USDC has deployed bytecode, and checks the compiled constructor. `--broadcast` is the only mode that submits a Mainnet transaction. It derives and prints the deployer address, verifies its gas balance, waits for one confirmation, checks deployed bytecode and reads back owner, USDC, fee recipient, and the default 200 bps platform fee. It writes the confirmed deployment details to `contracts/deployments/arc-mainnet-HumanLayer.json`. To preserve an earlier deployment record during a replacement deployment, pass a versioned record name with `--record arc-mainnet-HumanLayer-v4.json`.
 
 The private key is read from the process environment (Bun loads local `.env` files); it is never printed or recorded. Do not put a production private key in Vercel because the key is only needed by the deployment script, not by the running application. Back up the deployment JSON and verify/publish the source and compiler settings using Arc Explorer's supported verification flow.
 

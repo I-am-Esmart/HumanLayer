@@ -2,15 +2,15 @@
   "contract": "HumanLayer",
   "network": "Arc Mainnet",
   "chainId": 5042,
-  "address": "0x3F77cBAeC7798024C1ea91755dFFeb0c516767FE",
-  "transactionHash": "0xcd2bf912927a461c21fe82b2f01b3c6842789d36654521054eec4cf3a8353b7a",
+  "address": "0x43762D26A9c035d70c04D3cef58Db46227073e1E",
+  "transactionHash": "0xc5b63974d9f364170aa2fc3321727b51c8fda3802e2c6044fcfcbb7b23c89c33",
   "deployerAddress": "0x82B7fbD694b3Bca2D0A2294A57cA3776d5CA5D16",
   "ownerAddress": "0x82B7fbD694b3Bca2D0A2294A57cA3776d5CA5D16",
   "usdcAddress": "0x3600000000000000000000000000000000000000",
   "feeRecipient": "0x82B7fbD694b3Bca2D0A2294A57cA3776d5CA5D16",
   "platformFeeBps": "200",
-  "blockNumber": "28664886",
-  "deployedAt": "2026-10-30T15:02:57.000Z",
-  "explorerUrl": "https://explorer.arc.io/address/0x3F77cBAeC7798024C1ea91755dFFeb0c516767FE",
-  "transactionUrl": "https://explorer.arc.io/tx/0xcd2bf912927a461c21fe82b2f01b3c6842789d36654521054eec4cf3a8353b7a"
+  "blockNumber": "28669689",
+  "deployedAt": "2026-10-30T15:43:31.000Z",
+  "explorerUrl": "https://explorer.arc.io/address/0x43762D26A9c035d70c04D3cef58Db46227073e1E",
+  "transactionUrl": "https://explorer.arc.io/tx/0xc5b63974d9f364170aa2fc3321727b51c8fda3802e2c6044fcfcbb7b23c89c33"
 }
