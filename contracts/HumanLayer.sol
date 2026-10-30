@@ -62,6 +62,8 @@ contract HumanLayer is ReentrancyGuard, Ownable {
         uint256 totalFunded;
         uint256 totalPaid;
         uint256 pendingApprovedReward;
+        uint256 feeBpsSnapshot;
+        address feeRecipientSnapshot;
     }
 
     struct Submission {
@@ -159,7 +161,9 @@ contract HumanLayer is ReentrancyGuard, Ownable {
             status: BountyStatus.Open,
             totalFunded: 0,
             totalPaid: 0,
-            pendingApprovedReward: 0
+            pendingApprovedReward: 0,
+            feeBpsSnapshot: platformFeeBps,
+            feeRecipientSnapshot: feeRecipient
         });
 
         emit BountyCreated(bountyId, msg.sender, rewardPerWorker, category, taskRef, requiredWorkers, deadline);
@@ -323,7 +327,7 @@ contract HumanLayer is ReentrancyGuard, Ownable {
         if (reward == 0) revert InvalidReward();
         if (bounty.totalFunded < bounty.totalPaid + reward) revert InsufficientFunds();
 
-        uint256 fee = (reward * platformFeeBps) / 10_000;
+        uint256 fee = (reward * bounty.feeBpsSnapshot) / 10_000;
         uint256 net = reward - fee;
 
         submission.rewardClaimed = true;
@@ -333,8 +337,8 @@ contract HumanLayer is ReentrancyGuard, Ownable {
 
         usdcToken.safeTransfer(submission.worker, net);
         if (fee > 0) {
-            pendingFees[feeRecipient] += fee;
-            emit FeeAccrued(feeRecipient, fee);
+            pendingFees[bounty.feeRecipientSnapshot] += fee;
+            emit FeeAccrued(bounty.feeRecipientSnapshot, fee);
         }
 
         emit RewardClaimed(submissionId, submission.worker, net, fee);

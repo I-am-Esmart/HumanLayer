@@ -382,6 +382,31 @@ contract HumanLayerTest is Test {
         assertEq(usdc.balanceOf(owner),         0,  "feeRecipient wallet unchanged (pull model)");
     }
 
+    function test_ClaimReward_UsesBountyFeeAndRecipientSnapshot() public {
+        uint256 bountyId = _createAndFund(1);
+        uint256 subId = _submitWork(alice, bountyId);
+        vm.prank(creator);
+        hl.approveSubmission(subId);
+
+        vm.prank(owner);
+        hl.setPlatformFee(500);
+        vm.prank(owner);
+        hl.setFeeRecipient(bob);
+
+        vm.prank(alice);
+        hl.claimReward(subId);
+
+        uint256 originalFee = (REWARD * FEE_BPS) / BPS_DENOM;
+        assertEq(hl.pendingFees(owner), originalFee, "existing bounty keeps original recipient and fee");
+        assertEq(hl.pendingFees(bob), 0, "recipient update applies only to future bounties");
+        assertEq(usdc.balanceOf(alice), 10_000e6 + REWARD - originalFee, "worker receives original net reward");
+
+        uint256 nextBountyId = _createBounty(1);
+        HumanLayer.Bounty memory nextBounty = hl.getBounty(nextBountyId);
+        assertEq(nextBounty.feeBpsSnapshot, 500, "new bounty snapshots updated fee");
+        assertEq(nextBounty.feeRecipientSnapshot, bob, "new bounty snapshots updated recipient");
+    }
+
     // =========================================================================
     // 20. test_WithdrawFees_Success
     //     Owner (feeRecipient) calls withdrawFees() to pull accrued fees.
