@@ -108,7 +108,7 @@ export function CreateBountyPage({ onNavigate }: CreateBountyPageProps) {
     const workers = parseInt(requiredWorkers)
     const days = parseInt(daysUntilDeadline)
     if (!rewardPerWorker || isNaN(reward) || reward <= 0) e.rewardPerWorker = 'Enter a reward amount'
-    if (reward < 1) e.rewardPerWorker = 'Minimum reward is $1.00 USDC'
+    if (reward > 0 && reward < 0.1) e.rewardPerWorker = 'Minimum reward is $0.10 USDC'
     if (!requiredWorkers || isNaN(workers) || workers < 1) e.requiredWorkers = 'At least 1 worker required'
     if (workers > 50) e.requiredWorkers = 'Max 50 workers per bounty'
     if (!daysUntilDeadline || isNaN(days) || days < 1) e.daysUntilDeadline = 'At least 1 day required'
@@ -447,7 +447,7 @@ export function CreateBountyPage({ onNavigate }: CreateBountyPageProps) {
                 <p className="text-sm text-[var(--muted)]">Set the USDC reward and bounty duration.</p>
               </div>
 
-              <Input label="Reward per Worker (USDC)" type="number" min="1" step="0.01" placeholder="10.00" value={rewardPerWorker} onChange={(e) => setRewardPerWorker(e.target.value)} prefix="$" suffix="USDC" error={errors.rewardPerWorker} hint="Amount paid to each approved worker (net of 2% platform fee)" />
+              <Input label="Reward per Worker (USDC)" type="number" min="0.10" step="0.01" placeholder="0.10" value={rewardPerWorker} onChange={(e) => setRewardPerWorker(e.target.value)} prefix="$" suffix="USDC" error={errors.rewardPerWorker} hint="Minimum $0.10. Amount paid to each approved worker (net of 2% platform fee)." />
               <Input label="Number of Workers Required" type="number" min="1" max="50" placeholder="3" value={requiredWorkers} onChange={(e) => setRequiredWorkers(e.target.value)} error={errors.requiredWorkers} hint="Bounty closes after this many workers are approved" />
               <Input label="Deadline (days from now)" type="number" min="1" max="30" placeholder="7" value={daysUntilDeadline} onChange={(e) => setDaysUntilDeadline(e.target.value)} error={errors.daysUntilDeadline} />
 

@@ -408,7 +408,7 @@ export function ApiDocsPage() {
 
             <div className="glass rounded-xl p-5">
               <p className="text-xs font-semibold text-[var(--subtle)] uppercase tracking-wider mb-3">Base URL</p>
-              <CodeBlock code="http://localhost:3001   (dev)\nhttps://your-deployment.netlify.app  (production)" lang="text" />
+              <CodeBlock code="http://localhost:3001   (local development)\nhttps://agent-human-layer.vercel.app  (production)" lang="text" />
             </div>
 
             <div className="glass rounded-xl p-5 space-y-3">
